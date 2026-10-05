@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { count, eq } from 'drizzle-orm';
 import type {
+  ApprovalInput,
   ChangeOwnPasswordInput,
   LoginInput,
   PublicUser,
@@ -14,7 +15,7 @@ import { users } from '../../db/schema';
 import { writeAudit, type AuditActor } from '../../lib/audit';
 import { nowIso } from '../../lib/dates';
 import { badRequest, conflict, forbidden, unauthorized } from '../../lib/errors';
-import type { SessionUser } from '../../lib/permissions';
+import { can, effectivePermissions, type SessionUser } from '../../lib/permissions';
 import { findUserById, findUserByUsername, hashPassword, toPublicUser, userSnapshot } from '../users/service';
 import { createSession, deleteSession, deleteUserSessions } from './sessions';
 
@@ -190,4 +191,34 @@ export async function changeOwnPassword(
       summary: { username: user.username },
     });
   });
+}
+
+// --- Owner approval ----------------------------------------------------------
+
+/**
+ * Who approves a safety-rule exception (CLAUDE.md 8.10, section 15). An owner
+ * or the superuser approves their own action by confirming. Anyone else needs
+ * an active owner's or the superuser's username and password, typed inline.
+ * Returns null when no approval was offered. A wrong password is audited.
+ */
+export async function verifyApproval(db: DB, user: SessionUser, approval: ApprovalInput | undefined, what: string): Promise<AuditActor | null> {
+  if (!approval) return null;
+  if (can(user, 'approvals.grant')) return approval.confirmed ? auditActor(user) : null;
+  if (!approval.username || !approval.password) return null;
+
+  const approver = findUserByUsername(db, approval.username);
+  const ok = await bcrypt.compare(approval.password, approver?.password_hash ?? (await getDummyHash()));
+  const allowed = approver && approver.active && can({ role: approver.role, permissions: effectivePermissions(approver.role, true) }, 'approvals.grant');
+  if (!approver || !ok || !allowed) {
+    writeTx(db, (tx) =>
+      writeAudit(tx, auditActor(user), {
+        action: 'approval_failed',
+        entity: 'session',
+        entity_id: approver?.id ?? null,
+        summary: { approver_username: approval.username, for: what, reason: !approver ? 'unknown_user' : !ok ? 'wrong_password' : 'not_allowed' },
+      }),
+    );
+    throw forbidden(approver && ok ? 'Only the owner can approve this.' : 'Wrong owner username or password.');
+  }
+  return auditActor(approver);
 }

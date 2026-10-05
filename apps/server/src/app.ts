@@ -20,6 +20,7 @@ import { changelogRoutes } from './modules/changelog/routes';
 import { customerRoutes } from './modules/customers/routes';
 import { productRoutes } from './modules/products/routes';
 import { purchaseRoutes } from './modules/purchases/routes';
+import { saleRoutes } from './modules/sales/routes';
 import { getSetting } from './modules/settings/service';
 import { settingsRoutes } from './modules/settings/routes';
 import { stockRoutes } from './modules/stock/routes';
@@ -110,7 +111,7 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
       return reply.status(400).send({ error: first, code: 'VALIDATION', fields });
     }
     if (err instanceof AppError) {
-      return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      return reply.status(err.statusCode).send({ error: err.message, code: err.code, ...(err.details === undefined ? {} : { details: err.details }) });
     }
     const status = err.statusCode ?? 500;
     if (status < 500) {
@@ -134,6 +135,7 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
   await supplierRoutes(app);
   await productRoutes(app);
   await purchaseRoutes(app);
+  await saleRoutes(app);
   await stockRoutes(app);
 
   if (ctx.config.webDistDir) {

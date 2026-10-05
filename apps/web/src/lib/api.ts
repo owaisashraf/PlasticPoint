@@ -6,6 +6,8 @@ export class ApiError extends Error {
     message: string,
     readonly code?: string,
     readonly fields?: Record<string, string>,
+    /** Extra data from the server, e.g. the issues behind APPROVAL_REQUIRED. */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -27,10 +29,10 @@ async function request<T>(method: Method, url: string, body?: unknown): Promise<
     throw new ApiError(0, 'Cannot reach ShopLedger. Check that it is running, then try again.', 'NETWORK');
   }
   const data = (await res.json().catch(() => null)) as
-    | (T & { error?: string; code?: string; fields?: Record<string, string> })
+    | (T & { error?: string; code?: string; fields?: Record<string, string>; details?: unknown })
     | null;
   if (!res.ok) {
-    throw new ApiError(res.status, data?.error ?? 'Something went wrong. Please try again.', data?.code, data?.fields);
+    throw new ApiError(res.status, data?.error ?? 'Something went wrong. Please try again.', data?.code, data?.fields, data?.details);
   }
   return data as T;
 }

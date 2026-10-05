@@ -808,7 +808,7 @@ Update this checklist as phases are completed.
 - [x] Phase 1 — Foundation: repo, config, DB, roles & permissions, superuser/owner setup, append-only audit log, settings, backups
 - [x] Phase 2 — Master data: customers, supplier, products & variants with price, supplier margin and default discount
 - [x] Phase 3 — Purchases (price − supplier margin = cost), purchase returns, stock & average cost
-- [ ] Phase 4 — Sales: New Sale screen, customer search/add, size×color grid, customer discount % & profit, invoice PDF
+- [x] Phase 4 — Sales: New Sale screen, customer search/add, size×color grid, customer discount % & profit, invoice PDF
 - [ ] Phase 5 — Payments, allocation, sales returns, ledgers/statements, write-offs, bounced cheques
 - [ ] Phase 6 — Payment terms & Overdue tab
 - [ ] Phase 7 — Editing/voiding + superuser Change History

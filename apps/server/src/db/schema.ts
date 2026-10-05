@@ -418,3 +418,140 @@ export const purchase_return_items = sqliteTable(
     check('purchase_return_items_qty_ck', sql`${t.qty} > 0`),
   ],
 );
+
+// --- Sales (CLAUDE.md 8.10, 8.11) ---------------------------------------------------
+
+/**
+ * Goods sold to a customer. Totals are part of the document. Paid and
+ * outstanding amounts are never stored: they come from payment_allocations.
+ */
+export const sales = sqliteTable(
+  'sales',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    customer_id: integer()
+      .notNull()
+      .references(() => customers.id),
+    date: text().notNull(),
+    payment_terms_days: integer().notNull(),
+    due_date: text().notNull(),
+    /** Σ qty × price */
+    gross_paisa: integer().notNull(),
+    /** Σ line discounts */
+    line_discount_paisa: integer().notNull(),
+    extra_discount_paisa: integer().notNull().default(0),
+    tax_paisa: integer().notNull().default(0),
+    /** gross − line discounts − extra discount + tax: what the customer owes for this invoice */
+    total_paisa: integer().notNull(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    notes: text(),
+    /** The owner or superuser who approved a safety-rule exception, if any. */
+    approved_by: integer().references(() => users.id),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('sales_doc_no_uq').on(t.doc_no),
+    index('sales_customer_idx').on(t.customer_id, t.status, t.due_date),
+    index('sales_date_idx').on(t.date),
+    check('sales_amounts_ck', sql`${t.total_paisa} >= 0 AND ${t.extra_discount_paisa} >= 0 AND ${t.tax_paisa} >= 0`),
+  ],
+);
+
+/** Sale lines. Price, discount, cost and profit are captured at posting (part of the document). */
+export const sale_items = sqliteTable(
+  'sale_items',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    sale_id: integer()
+      .notNull()
+      .references(() => sales.id),
+    line_no: integer().notNull(),
+    variant_id: integer()
+      .notNull()
+      .references(() => product_variants.id),
+    qty: integer().notNull(),
+    /** The product's price at the time of sale. */
+    list_price_paisa: integer().notNull(),
+    /** What the system suggested. */
+    default_discount_bp: integer().notNull(),
+    /** What was actually given. */
+    discount_bp: integer().notNull(),
+    discount_overridden: integer({ mode: 'boolean' }).notNull().default(false),
+    line_gross_paisa: integer().notNull(),
+    line_discount_paisa: integer().notNull(),
+    /** After the line discount and this line's share of the extra invoice discount. */
+    line_net_paisa: integer().notNull(),
+    unit_cost_paisa: integer().notNull(),
+    cost_source: text({ enum: ['purchase_avg', 'estimated'] }).notNull(),
+    line_cost_paisa: integer().notNull(),
+    profit_paisa: integer().notNull(),
+  },
+  (t) => [
+    index('sale_items_sale_idx').on(t.sale_id),
+    index('sale_items_variant_idx').on(t.variant_id),
+    check('sale_items_qty_ck', sql`${t.qty} > 0`),
+    check('sale_items_discount_ck', sql`${t.discount_bp} BETWEEN 0 AND 10000 AND ${t.default_discount_bp} BETWEEN 0 AND 10000`),
+  ],
+);
+
+// --- Payments and allocation (CLAUDE.md 8.5) ----------------------------------------
+
+/** Money received from a customer (receipt) or paid to the supplier. */
+export const payments = sqliteTable(
+  'payments',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    party_type: text({ enum: ['customer', 'supplier'] }).notNull(),
+    party_id: integer().notNull(),
+    date: text().notNull(),
+    amount_paisa: integer().notNull(),
+    method: text({ enum: ['cash', 'bank', 'cheque', 'online'] }).notNull(),
+    reference: text(),
+    cheque_no: text(),
+    cheque_bank: text(),
+    cheque_date: text(),
+    status: text({ enum: ['posted', 'void', 'bounced'] }).notNull().default('posted'),
+    /** Set when the money was taken at the counter together with this sale. */
+    sale_id: integer().references(() => sales.id),
+    version: integer().notNull().default(1),
+    notes: text(),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('payments_doc_no_uq').on(t.doc_no),
+    index('payments_party_idx').on(t.party_type, t.party_id, t.date),
+    index('payments_date_idx').on(t.date),
+    check('payments_amount_ck', sql`${t.amount_paisa} > 0`),
+  ],
+);
+
+/** Links a payment, credit note or write-off to an invoice, reducing its outstanding amount. */
+export const payment_allocations = sqliteTable(
+  'payment_allocations',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source_type: text({ enum: ['payment', 'sales_return', 'write_off'] }).notNull(),
+    source_id: integer().notNull(),
+    sale_id: integer()
+      .notNull()
+      .references(() => sales.id),
+    amount_paisa: integer().notNull(),
+    /** Picked by the user (kept when auto allocations are recalculated). */
+    is_manual: integer({ mode: 'boolean' }).notNull().default(false),
+    created_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    index('payment_allocations_sale_idx').on(t.sale_id),
+    index('payment_allocations_source_idx').on(t.source_type, t.source_id),
+    check('payment_allocations_amount_ck', sql`${t.amount_paisa} > 0`),
+  ],
+);

@@ -15,6 +15,9 @@ export function useHotkey(key: string, handler: (e: KeyboardEvent) => void, enab
     const k = want[want.length - 1];
     const ctrl = want.includes('ctrl');
     const onKey = (e: KeyboardEvent) => {
+      // Already handled inside the page (e.g. Ctrl+Enter in the size × color
+      // grid): don't also run the page shortcut.
+      if (e.defaultPrevented) return;
       if (e.key.toLowerCase() === k && e.ctrlKey === ctrl) {
         e.preventDefault();
         ref.current(e);

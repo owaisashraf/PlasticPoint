@@ -1,9 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–3 on a fresh database, in order:
+// A click-through of phases 1–4 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
-// price from a bill → superuser verifies the audit log.
+// price from a bill → operator sells (new customer, changed discount, cash,
+// share) → a below-cost sale needs the owner password → owner sees profit →
+// superuser verifies the audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -253,7 +255,97 @@ test('6. owner records a bill with a new price and updates the product', async (
   await logout(page);
 });
 
-test('7. superuser verifies the audit log', async ({ page }) => {
+test('7. operator sells to a new customer with a changed discount, takes cash and shares the invoice', async ({ page, context }) => {
+  await login(page, 'ali', PW.operator);
+  await page.keyboard.press('F4');
+  await expect(page.getByRole('heading', { name: 'New sale', exact: true })).toBeVisible();
+
+  // F2 → no match → add the customer inline; they are then selected.
+  await page.keyboard.press('F2');
+  await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Bilal Traders');
+  await page.getByRole('option', { name: /Add new customer/ }).click();
+  const qd = page.getByRole('dialog');
+  await expect(qd.getByText('Add new customer')).toBeVisible();
+  await qd.getByLabel('Phone').fill('0321-7654321');
+  await qd.getByLabel('City').fill('Multan');
+  await qd.getByRole('button', { name: 'Add customer' }).click();
+  await expect(page.getByLabel('Customer', { exact: true })).toContainText('Bilal Traders');
+  await expect(page.getByLabel('Payment terms (days)')).toHaveValue('30');
+
+  await page.getByLabel('Item code').fill('B-101');
+  await page.getByLabel('Item code').press('Enter');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').fill('3');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').press('Control+Enter');
+
+  // Price Rs 1,050 (fixed), 10% → Rs 2,835; changed to 12% → Rs 2,772.
+  await expect(page.getByRole('cell', { name: 'Rs 2,835' })).toBeVisible();
+  await page.getByLabel('Discount percent B-101 Red 10L').fill('12');
+  await expect(page.getByRole('cell', { name: 'Rs 2,772' })).toBeVisible();
+  // Operators never see profit.
+  await expect(page.getByRole('columnheader', { name: 'Profit' })).toHaveCount(0);
+  await page.getByLabel('Cash received now').fill('1000');
+  await shot(page, '19-new-sale-operator');
+
+  await page.keyboard.press('Control+Enter');
+  const share = page.getByRole('dialog');
+  await expect(share.getByText('Share invoice INV-000001')).toBeVisible();
+  await shot(page, '20-share-dialog');
+  const [popup, pdf] = await Promise.all([
+    context.waitForEvent('page'),
+    context.waitForEvent('response', (r) => r.url().includes('/api/sales/1/pdf')),
+    share.getByRole('button', { name: 'Print / PDF (A4)' }).click(),
+  ]);
+  expect(pdf.status()).toBe(200);
+  expect(pdf.headers()['content-type']).toBe('application/pdf');
+  await popup.close();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: /Invoice INV-000001/ })).toBeVisible();
+  await expect(page.getByText('RCV-000001')).toBeVisible();
+  await expect(page.getByText('Rs 1,772').first()).toBeVisible();
+  await shot(page, '21-sale-view-operator');
+});
+
+test('8. a below-cost discount needs the owner password', async ({ page }) => {
+  await login(page, 'ali', PW.operator);
+  await page.goto('/sales/new');
+  await page.keyboard.press('F2');
+  await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Bilal');
+  await page.getByRole('option', { name: /Bilal Traders/ }).click();
+  await page.getByLabel('Item code').fill('B-101');
+  await page.getByLabel('Item code').press('Enter');
+  await page.getByRole('dialog').getByLabel('Blue 15L quantity').fill('1');
+  await page.getByRole('dialog').getByLabel('Blue 15L quantity').press('Control+Enter');
+  // 20% off Rs 1,050 = Rs 840, below the Rs 880 cost — the operator is not told why.
+  await page.getByLabel('Discount percent B-101 Blue 15L').fill('20');
+  await expect(page.getByText('This discount needs owner approval.')).toBeVisible();
+  await expect(page.getByText(/cost|margin/i)).toHaveCount(0);
+  await page.keyboard.press('Control+s');
+  const ad = page.getByRole('dialog');
+  await expect(ad.getByText('Owner approval needed')).toBeVisible();
+  await ad.getByLabel('Owner username').fill('owner');
+  await ad.getByLabel('Owner password').fill('wrong-password');
+  await ad.getByRole('button', { name: 'Approve and save' }).click();
+  await expect(ad.getByText('Wrong owner username or password.')).toBeVisible();
+  await ad.getByLabel('Owner password').fill(PW.owner);
+  await shot(page, '22-owner-approval');
+  await ad.getByRole('button', { name: 'Approve and save' }).click();
+  await expect(page.getByRole('heading', { name: /Invoice INV-000002/ })).toBeVisible();
+  await expect(page.getByText(/approved by Shop Owner/)).toBeVisible();
+});
+
+test('9. owner sees profit on sales', async ({ page }) => {
+  await login(page, 'owner', PW.owner);
+  await nav(page, 'Sales').click();
+  await expect(page.getByRole('columnheader', { name: 'Profit' })).toBeVisible();
+  await shot(page, '23-sales-list-owner');
+  await page.getByRole('cell', { name: 'INV-000002' }).click();
+  await expect(page.getByRole('heading', { name: /Invoice INV-000002/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /B-101/ }).locator('.text-destructive')).toBeVisible();
+  await shot(page, '24-sale-view-owner-loss');
+  await logout(page);
+});
+
+test('10. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

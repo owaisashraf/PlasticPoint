@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SalesTable } from '@/features/sales/SalesTable';
 import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
@@ -149,7 +150,7 @@ export function CustomerDetailPage() {
           <LedgerTab id={c.id} />
         </TabsContent>
         <TabsContent value="invoices">
-          <Later what="Invoices" phase={4} />
+          <SalesTable customerId={c.id} />
         </TabsContent>
         <TabsContent value="payments">
           <Later what="Payments" phase={5} />

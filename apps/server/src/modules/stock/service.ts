@@ -37,6 +37,7 @@ export function variantMovements(db: DB, variantId: number): StockMovement[] {
   const docNo = sql<string | null>`CASE ${stock_movements.source_type}
     WHEN 'purchase' THEN (SELECT doc_no FROM purchases WHERE id = ${stock_movements.source_id})
     WHEN 'purchase_return' THEN (SELECT doc_no FROM purchase_returns WHERE id = ${stock_movements.source_id})
+    WHEN 'sale' THEN (SELECT doc_no FROM sales WHERE id = ${stock_movements.source_id})
     ELSE NULL END`;
   let running = 0;
   return db

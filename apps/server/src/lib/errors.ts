@@ -7,6 +7,8 @@ export class AppError extends Error {
     readonly statusCode: number,
     message: string,
     readonly code?: string,
+    /** Extra data the screen needs to react (sent as `details`). Must be safe for the caller to see. */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = 'AppError';
@@ -17,4 +19,4 @@ export const badRequest = (message: string, code?: string) => new AppError(400, 
 export const unauthorized = (message = 'Please log in to continue.') => new AppError(401, message, 'UNAUTHORIZED');
 export const forbidden = (message = 'You do not have permission to do this.') => new AppError(403, message, 'FORBIDDEN');
 export const notFound = (message = 'Not found.') => new AppError(404, message, 'NOT_FOUND');
-export const conflict = (message: string, code?: string) => new AppError(409, message, code);
+export const conflict = (message: string, code?: string, details?: unknown) => new AppError(409, message, code, details);
