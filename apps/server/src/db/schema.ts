@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Conventions (CLAUDE.md section 7): money columns end in _paisa (integers),
 // percentages end in _bp (integers), business dates are TEXT 'YYYY-MM-DD',
@@ -124,4 +124,188 @@ export const backup_log = sqliteTable(
     second_copy_error: text(),
   },
   (t) => [index('backup_log_started_idx').on(t.started_at)],
+);
+
+/** Counters for customer codes and document numbers. Numbers are never reused. */
+export const sequences = sqliteTable('sequences', {
+  name: text().primaryKey(),
+  last_value: integer().notNull(),
+});
+
+// --- Parties -----------------------------------------------------------------
+
+/**
+ * Customers. Balances and opening balances are not stored here: they come from
+ * ledger_entries (the opening balance is an 'opening_balance' entry).
+ * A trigram FTS5 index (customers_fts) is kept in sync by triggers in a
+ * hand-written migration.
+ */
+export const customers = sqliteTable(
+  'customers',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    code: text().notNull(),
+    name: text().notNull(),
+    business_name: text(),
+    type: text({ enum: ['wholesaler', 'retailer'] }).notNull(),
+    phone: text(),
+    alt_phone: text(),
+    city: text(),
+    area: text(),
+    address: text(),
+    ntn: text(),
+    credit_limit_paisa: integer().notNull().default(0),
+    payment_terms_days: integer().notNull(),
+    status: text({ enum: ['active', 'inactive', 'bad_debt'] }).notNull().default('active'),
+    bad_debt_marked_at: text(),
+    bad_debt_reason: text(),
+    notes: text(),
+    created_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('customers_code_uq').on(t.code),
+    index('customers_status_idx').on(t.status),
+    index('customers_city_idx').on(t.city),
+    check('customers_credit_limit_ck', sql`${t.credit_limit_paisa} >= 0`),
+  ],
+);
+
+/** The manufacturer we buy from. A table, because more suppliers may come later. */
+export const suppliers = sqliteTable('suppliers', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  name: text().notNull(),
+  phone: text(),
+  address: text(),
+  ntn: text(),
+  notes: text(),
+  active: integer({ mode: 'boolean' }).notNull().default(true),
+  created_at: text().notNull().default(nowIso),
+  updated_at: text().notNull().default(nowIso),
+});
+
+// --- Products ----------------------------------------------------------------
+
+/** One price per product, shared by all its sizes and colors (CLAUDE.md 8.10). */
+export const products = sqliteTable(
+  'products',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    item_code: text().notNull(),
+    name: text().notNull(),
+    category: text(),
+    unit: text({ enum: ['pcs', 'dozen', 'set', 'carton'] }).notNull().default('pcs'),
+    sizes: text({ mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    colors: text({ mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    list_price_paisa: integer().notNull(),
+    supplier_margin_bp: integer().notNull(),
+    default_customer_discount_bp: integer().notNull(),
+    max_customer_discount_bp: integer(),
+    active: integer({ mode: 'boolean' }).notNull().default(true),
+    created_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('products_item_code_uq').on(t.item_code),
+    index('products_category_idx').on(t.category),
+    check('products_price_ck', sql`${t.list_price_paisa} > 0`),
+    check('products_margin_ck', sql`${t.supplier_margin_bp} BETWEEN 0 AND 10000`),
+    check('products_discount_ck', sql`${t.default_customer_discount_bp} BETWEEN 0 AND 10000`),
+    check('products_max_discount_ck', sql`${t.max_customer_discount_bp} IS NULL OR ${t.max_customer_discount_bp} BETWEEN 0 AND 10000`),
+  ],
+);
+
+/** One product + color + size. Stock and document lines point here. No price of its own. */
+export const product_variants = sqliteTable(
+  'product_variants',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    product_id: integer()
+      .notNull()
+      .references(() => products.id),
+    color: text().notNull().default(''),
+    size: text().notNull().default(''),
+    sku: text().notNull(),
+    /** Weighted average actual purchase cost; null until the first purchase. */
+    avg_cost_paisa: integer(),
+    low_stock_threshold: integer().notNull().default(0),
+    active: integer({ mode: 'boolean' }).notNull().default(true),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('product_variants_sku_uq').on(t.sku),
+    uniqueIndex('product_variants_combo_uq').on(t.product_id, t.color, t.size),
+  ],
+);
+
+export const product_price_history = sqliteTable(
+  'product_price_history',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    product_id: integer()
+      .notNull()
+      .references(() => products.id),
+    effective_date: text().notNull(),
+    list_price_paisa: integer().notNull(),
+    supplier_margin_bp: integer().notNull(),
+    default_customer_discount_bp: integer().notNull(),
+    changed_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+  },
+  (t) => [index('product_price_history_product_idx').on(t.product_id, t.id)],
+);
+
+// --- Ledger and stock ---------------------------------------------------------
+
+/**
+ * Customer and supplier ledgers (CLAUDE.md 8.3).
+ * Customer balance = Σdebit − Σcredit; supplier balance = Σcredit − Σdebit.
+ * party_id is not a foreign key because it points at customers or suppliers.
+ */
+export const ledger_entries = sqliteTable(
+  'ledger_entries',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    party_type: text({ enum: ['customer', 'supplier'] }).notNull(),
+    party_id: integer().notNull(),
+    date: text().notNull(),
+    debit_paisa: integer().notNull().default(0),
+    credit_paisa: integer().notNull().default(0),
+    entry_type: text().notNull(),
+    source_type: text().notNull(),
+    source_id: integer().notNull(),
+    narration: text(),
+    created_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    index('ledger_entries_party_idx').on(t.party_type, t.party_id, t.date),
+    index('ledger_entries_source_idx').on(t.source_type, t.source_id),
+    check('ledger_entries_amounts_ck', sql`${t.debit_paisa} >= 0 AND ${t.credit_paisa} >= 0`),
+    check('ledger_entries_one_side_ck', sql`(${t.debit_paisa} = 0) <> (${t.credit_paisa} = 0)`),
+  ],
+);
+
+/** Stock on hand for a variant = Σ qty_change. */
+export const stock_movements = sqliteTable(
+  'stock_movements',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    variant_id: integer()
+      .notNull()
+      .references(() => product_variants.id),
+    date: text().notNull(),
+    qty_change: integer().notNull(),
+    unit_cost_paisa: integer(),
+    source_type: text().notNull(),
+    source_id: integer().notNull(),
+    created_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    index('stock_movements_variant_idx').on(t.variant_id),
+    index('stock_movements_source_idx').on(t.source_type, t.source_id),
+    check('stock_movements_qty_ck', sql`${t.qty_change} <> 0`),
+  ],
 );

@@ -39,6 +39,7 @@ const MATRIX: Record<KnownPermission, Role[]> = {
   'settings.manage': ['owner', 'superuser'],
   'backups.manage': ['owner', 'superuser'],
   'users.manage_operators': ['owner', 'superuser'],
+  'suppliers.manage': ['owner', 'superuser'],
   'users.manage_owners': ['superuser'],
   'changelog.view': ['superuser'],
   'changelog.review': ['superuser'],

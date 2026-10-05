@@ -42,6 +42,7 @@ export const PERMISSION_KEYS = [
   'settings.manage',
   'backups.manage',
   'users.manage_operators',
+  'suppliers.manage',
 
   // Superuser only
   'users.manage_owners',
@@ -87,6 +88,7 @@ const OWNER_KEYS: readonly KnownPermission[] = [
   'settings.manage',
   'backups.manage',
   'users.manage_operators',
+  'suppliers.manage',
 ];
 
 /** Role -> permission keys. The superuser gets every key. */

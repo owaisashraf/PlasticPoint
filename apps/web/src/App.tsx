@@ -8,14 +8,22 @@ import { FullPageMessage } from './components/FullPageMessage';
 import { useMe, useSetupStatus } from './features/auth/useAuth';
 import { AccountPage } from './routes/account/AccountPage';
 import { ChangeHistoryPage } from './routes/change-history/ChangeHistoryPage';
+import { CustomerDetailPage } from './routes/customers/CustomerDetailPage';
+import { CustomersPage } from './routes/customers/CustomersPage';
 import { DashboardPage } from './routes/dashboard/DashboardPage';
 import { LoginPage } from './routes/login/LoginPage';
+import { ProductDetailPage } from './routes/products/ProductDetailPage';
+import { ProductsPage } from './routes/products/ProductsPage';
+import { PurchasesPage } from './routes/purchases/PurchasesPage';
 import { SettingsPage } from './routes/settings/SettingsPage';
 import { SetupPage } from './routes/setup/SetupPage';
 
 const BUILT_PAGES: Record<string, ReactNode> = {
   '/': <DashboardPage />,
   '/settings': <SettingsPage />,
+  '/customers': <CustomersPage />,
+  '/products': <ProductsPage />,
+  '/purchases': <PurchasesPage />,
   '/change-history': <ChangeHistoryPage />,
 };
 
@@ -70,6 +78,22 @@ export function App() {
             }
           />
         ))}
+        <Route
+          path="/customers/:id"
+          element={
+            <Guard permission="customers.view">
+              <CustomerDetailPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/products/:id"
+          element={
+            <Guard permission="products.view">
+              <ProductDetailPage />
+            </Guard>
+          }
+        />
         <Route path="/account" element={<AccountPage />} />
         <Route path="*" element={<FullPageMessage title="Page not found" detail="Use the menu on the left." inline />} />
       </Route>

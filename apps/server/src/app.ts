@@ -17,8 +17,11 @@ import { authRoutes } from './modules/auth/routes';
 import { SESSION_COOKIE, resolveSession } from './modules/auth/sessions';
 import { backupRoutes } from './modules/backups/routes';
 import { changelogRoutes } from './modules/changelog/routes';
+import { customerRoutes } from './modules/customers/routes';
+import { productRoutes } from './modules/products/routes';
 import { getSetting } from './modules/settings/service';
 import { settingsRoutes } from './modules/settings/routes';
+import { supplierRoutes } from './modules/suppliers/routes';
 import { userRoutes } from './modules/users/routes';
 
 export interface AppContext {
@@ -125,6 +128,9 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
   await settingsRoutes(app);
   await backupRoutes(app);
   await changelogRoutes(app);
+  await customerRoutes(app);
+  await supplierRoutes(app);
+  await productRoutes(app);
 
   if (ctx.config.webDistDir) {
     await app.register(fastifyStatic, {
