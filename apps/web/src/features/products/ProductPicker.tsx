@@ -10,12 +10,14 @@ export function ProductPicker({
   open,
   onOpenChange,
   onSelect,
+  initialQuery = '',
 }: {
+  initialQuery?: string;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSelect: (p: Product) => void;
 }) {
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialQuery);
   const deferred = useDeferredValue(q.trim());
   const { data, isFetching } = useProducts({ q: deferred, limit: 25, status: 'active' }, open);
 

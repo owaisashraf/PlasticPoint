@@ -14,6 +14,8 @@ import { DashboardPage } from './routes/dashboard/DashboardPage';
 import { LoginPage } from './routes/login/LoginPage';
 import { ProductDetailPage } from './routes/products/ProductDetailPage';
 import { ProductsPage } from './routes/products/ProductsPage';
+import { NewPurchasePage } from './routes/purchases/NewPurchasePage';
+import { PurchaseDetailPage } from './routes/purchases/PurchaseDetailPage';
 import { PurchasesPage } from './routes/purchases/PurchasesPage';
 import { SettingsPage } from './routes/settings/SettingsPage';
 import { SetupPage } from './routes/setup/SetupPage';
@@ -91,6 +93,22 @@ export function App() {
           element={
             <Guard permission="products.view">
               <ProductDetailPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/purchases/new"
+          element={
+            <Guard permission="purchases.create">
+              <NewPurchasePage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/purchases/:id"
+          element={
+            <Guard permission="purchases.view">
+              <PurchaseDetailPage />
             </Guard>
           }
         />

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatPaisa, formatPhone, paisaToInput, parseRupeesToPaisa, type Supplier } from '@shopledger/shared';
 import { Pencil, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -11,30 +12,118 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCan } from '@/features/auth/useAuth';
+import { usePurchases } from '@/features/purchases/api';
 import { api, ApiError, errorMessage } from '@/lib/api';
 
 const SUPPLIERS_KEY = ['suppliers'] as const;
 
 export function PurchasesPage() {
+  const can = useCan();
+  const navigate = useNavigate();
   return (
     <div>
-      <PageHeader title="Purchases" />
-      <Tabs defaultValue="supplier">
+      <PageHeader
+        title="Purchases"
+        actions={
+          can('purchases.create') && (
+            <Button onClick={() => navigate('/purchases/new')}>
+              <Plus /> New purchase
+            </Button>
+          )
+        }
+      />
+      <Tabs defaultValue="purchases">
         <TabsList>
           <TabsTrigger value="purchases">Purchases</TabsTrigger>
           <TabsTrigger value="supplier">Supplier</TabsTrigger>
         </TabsList>
         <TabsContent value="purchases">
-          <div className="rounded-lg border border-dashed border-border bg-card py-16 text-center text-muted-foreground">
-            Recording purchases arrives in phase 3.
-          </div>
+          <PurchaseList />
         </TabsContent>
         <TabsContent value="supplier">
           <SupplierPanel />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function PurchaseList() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [limit, setLimit] = useState(100);
+  const list = usePurchases({ q: q.trim(), from, to, limit });
+  const rows = list.data?.purchases ?? [];
+  const showCost = rows.some((p) => p.total_cost_paisa !== undefined);
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <Input className="w-64" placeholder="Purchase no. or supplier bill no." value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="text-sm">
+          From <Input type="date" className="w-44" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="text-sm">
+          To <Input type="date" className="w-44" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+      </div>
+      {list.isError && <p className="text-destructive">{errorMessage(list.error)}</p>}
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="w-full text-[15px]">
+          <thead className="bg-muted text-left text-sm text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2">Date</th>
+              <th className="px-3 py-2">Number</th>
+              <th className="px-3 py-2">Supplier</th>
+              <th className="px-3 py-2">Bill no.</th>
+              <th className="px-3 py-2 text-right">Lines</th>
+              <th className="px-3 py-2 text-right">Qty</th>
+              <th className="px-3 py-2 text-right">Gross</th>
+              {showCost && <th className="px-3 py-2 text-right">Cost</th>}
+              <th className="px-3 py-2">Entered by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => (
+              <tr
+                key={p.id}
+                className="cursor-pointer border-t border-border hover:bg-muted/60"
+                tabIndex={0}
+                onClick={() => navigate(`/purchases/${p.id}`)}
+                onKeyDown={(e) => e.key === 'Enter' && navigate(`/purchases/${p.id}`)}
+              >
+                <td className="px-3 py-2 whitespace-nowrap">{p.date}</td>
+                <td className="px-3 py-2 font-mono font-semibold">
+                  {p.doc_no} {p.status === 'void' && <Badge variant="grey">VOID</Badge>}
+                </td>
+                <td className="px-3 py-2">{p.supplier_name}</td>
+                <td className="px-3 py-2">{p.supplier_ref}</td>
+                <td className="amount px-3 py-2">{p.item_count}</td>
+                <td className="amount px-3 py-2">{p.total_qty}</td>
+                <td className="amount px-3 py-2">{formatPaisa(p.gross_paisa)}</td>
+                {showCost && <td className="amount px-3 py-2 font-semibold">{formatPaisa(p.total_cost_paisa ?? 0)}</td>}
+                <td className="px-3 py-2 text-sm text-muted-foreground">{p.created_by_name}</td>
+              </tr>
+            ))}
+            {list.data && rows.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
+                  No purchases yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {list.data && list.data.total > rows.length && (
+        <Button className="mt-3" variant="outline" size="sm" onClick={() => setLimit((l) => l + 100)}>
+          Show more ({rows.length} of {list.data.total})
+        </Button>
+      )}
     </div>
   );
 }

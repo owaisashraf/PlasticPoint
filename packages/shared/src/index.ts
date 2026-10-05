@@ -11,3 +11,4 @@ export * from './ledger';
 export * from './customers';
 export * from './suppliers';
 export * from './products';
+export * from './purchases';

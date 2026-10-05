@@ -26,7 +26,7 @@ createRoot(root).render(
       <BrowserRouter>
         <App />
       </BrowserRouter>
-      <Toaster position="top-right" richColors closeButton duration={4000} />
+      <Toaster position="bottom-right" offset={{ bottom: 44, right: 16 }} richColors closeButton duration={4000} />
     </QueryClientProvider>
   </StrictMode>,
 );

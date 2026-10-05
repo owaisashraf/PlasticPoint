@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { PriceHistoryEntry, Product } from '@shopledger/shared';
+import type { LowStockRow, PriceHistoryEntry, Product, StockMovement, StockValuationRow } from '@shopledger/shared';
 import { api } from '@/lib/api';
 
 export const PRODUCTS_KEY = ['products'] as const;
@@ -41,6 +41,31 @@ export function usePriceHistory(id: number, enabled: boolean) {
   return useQuery({
     queryKey: [...PRODUCTS_KEY, 'history', id],
     queryFn: () => api.get<{ history: PriceHistoryEntry[] }>(`/api/products/${id}/price-history`).then((r) => r.history),
+    enabled,
+  });
+}
+
+export function useLowStock(enabled = true) {
+  return useQuery({
+    queryKey: [...PRODUCTS_KEY, 'low-stock'],
+    queryFn: () => api.get<{ rows: LowStockRow[] }>('/api/stock/low').then((r) => r.rows),
+    enabled,
+  });
+}
+
+export function useVariantMovements(variantId: number | null) {
+  return useQuery({
+    queryKey: [...PRODUCTS_KEY, 'movements', variantId],
+    queryFn: () => api.get<{ movements: StockMovement[] }>(`/api/variants/${variantId}/movements`).then((r) => r.movements),
+    enabled: variantId !== null,
+  });
+}
+
+/** Owner+ only: never call this without finance.view. */
+export function useStockValuation(enabled: boolean) {
+  return useQuery({
+    queryKey: [...PRODUCTS_KEY, 'valuation'],
+    queryFn: () => api.get<{ rows: StockValuationRow[]; total_qty: number; total_value_paisa: number }>('/api/stock/valuation'),
     enabled,
   });
 }

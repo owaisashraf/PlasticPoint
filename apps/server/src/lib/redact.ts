@@ -11,7 +11,7 @@ import type { SessionUser } from './permissions';
 export type RedactionRule = 'supplier_margin' | 'cost' | 'profit' | 'valuation' | 'expenses' | 'assets';
 
 const RULES: Record<RedactionRule, (key: string) => boolean> = {
-  supplier_margin: (k) => k.includes('supplier_margin'),
+  supplier_margin: (k) => k.includes('supplier_margin') || k === 'margin_paisa' || k.endsWith('_margin_paisa'),
   cost: (k) => k === 'cost_paisa' || k.endsWith('_cost_paisa') || k === 'cost_source' || k === 'unit_cost',
   profit: (k) => k.includes('profit'),
   valuation: (k) => k.includes('valuation') || k === 'stock_value_paisa',

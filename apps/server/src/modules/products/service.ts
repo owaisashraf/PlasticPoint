@@ -345,6 +345,41 @@ export function updateVariant(db: DB, user: SessionUser, variantId: number, inpu
   });
 }
 
+/**
+ * Owner+: changes a product's price and/or supplier margin inside a caller's
+ * transaction (used when a purchase bill shows new figures). Adds price
+ * history and one audit row. Returns false if nothing changed.
+ */
+export function setProductPricing(
+  tx: Tx,
+  user: SessionUser,
+  productId: number,
+  changes: { list_price_paisa?: number; supplier_margin_bp?: number },
+  reason: string,
+): boolean {
+  if (!can(user, 'pricing.manage')) throw forbidden(PRICE_FORBIDDEN);
+  const before = tx.select().from(products).where(eq(products.id, productId)).get();
+  if (!before) throw notFound('Product not found.');
+  const set: Partial<ProductRow> = {};
+  if (changes.list_price_paisa !== undefined && changes.list_price_paisa !== before.list_price_paisa) set.list_price_paisa = changes.list_price_paisa;
+  if (changes.supplier_margin_bp !== undefined && changes.supplier_margin_bp !== before.supplier_margin_bp) set.supplier_margin_bp = changes.supplier_margin_bp;
+  if (Object.keys(set).length === 0) return false;
+  const after = tx.update(products).set({ ...set, updated_at: nowIso() }).where(eq(products.id, productId)).returning().get();
+  recordPrice(tx, after, user.id);
+  writeAudit(tx, auditActor(user), {
+    action: 'update',
+    entity: 'product',
+    entity_id: productId,
+    doc_no: after.item_code,
+    before,
+    after,
+    summary: { changed_fields: Object.keys(set) },
+    flags: ['price_changed'],
+    reason,
+  });
+  return true;
+}
+
 // --- Bulk update (owner+) ------------------------------------------------------
 
 function applyChange(p: ProductRow, change: BulkInput['change']): BulkUpdateRow['after'] {

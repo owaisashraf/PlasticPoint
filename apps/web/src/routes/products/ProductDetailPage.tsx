@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { useCan } from '@/features/auth/useAuth';
 import { PRODUCTS_KEY, usePriceHistory, useProduct } from '@/features/products/api';
 import { ProductFormDialog } from '@/features/products/ProductFormDialog';
+import { StockGrid } from '@/features/products/StockPanels';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 
@@ -94,6 +95,15 @@ export function ProductDetailPage() {
           </>
         )}
       </div>
+
+      <Card className="mb-5">
+        <CardHeader>
+          <CardTitle>Stock on hand</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StockGrid product={p} />
+        </CardContent>
+      </Card>
 
       <Card className="mb-5">
         <CardHeader>

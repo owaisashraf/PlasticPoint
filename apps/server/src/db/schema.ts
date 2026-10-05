@@ -309,3 +309,112 @@ export const stock_movements = sqliteTable(
     check('stock_movements_qty_ck', sql`${t.qty_change} <> 0`),
   ],
 );
+
+// --- Purchases (CLAUDE.md 8.9) ---------------------------------------------------
+
+/** Goods bought from the supplier. Totals are captured at posting (part of the document). */
+export const purchases = sqliteTable(
+  'purchases',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    supplier_id: integer()
+      .notNull()
+      .references(() => suppliers.id),
+    date: text().notNull(),
+    supplier_ref: text(),
+    notes: text(),
+    gross_paisa: integer().notNull(),
+    margin_paisa: integer().notNull(),
+    /** What we owe the supplier for this bill (gross − margin). */
+    total_cost_paisa: integer().notNull(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('purchases_doc_no_uq').on(t.doc_no),
+    index('purchases_date_idx').on(t.date),
+    index('purchases_supplier_idx').on(t.supplier_id, t.status),
+  ],
+);
+
+export const purchase_items = sqliteTable(
+  'purchase_items',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    purchase_id: integer()
+      .notNull()
+      .references(() => purchases.id),
+    line_no: integer().notNull(),
+    variant_id: integer()
+      .notNull()
+      .references(() => product_variants.id),
+    qty: integer().notNull(),
+    /** Price on the manufacturer's bill. */
+    list_price_paisa: integer().notNull(),
+    supplier_margin_bp: integer().notNull(),
+    line_gross_paisa: integer().notNull(),
+    line_margin_paisa: integer().notNull(),
+    line_cost_paisa: integer().notNull(),
+    unit_cost_paisa: integer().notNull(),
+  },
+  (t) => [
+    index('purchase_items_purchase_idx').on(t.purchase_id),
+    index('purchase_items_variant_idx').on(t.variant_id),
+    check('purchase_items_qty_ck', sql`${t.qty} > 0`),
+    check('purchase_items_margin_ck', sql`${t.supplier_margin_bp} BETWEEN 0 AND 10000`),
+  ],
+);
+
+/** Goods sent back to the supplier (debit note), always linked to the original purchase. */
+export const purchase_returns = sqliteTable(
+  'purchase_returns',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    purchase_id: integer()
+      .notNull()
+      .references(() => purchases.id),
+    supplier_id: integer()
+      .notNull()
+      .references(() => suppliers.id),
+    date: text().notNull(),
+    reason: text().notNull(),
+    total_cost_paisa: integer().notNull(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [uniqueIndex('purchase_returns_doc_no_uq').on(t.doc_no), index('purchase_returns_purchase_idx').on(t.purchase_id), index('purchase_returns_date_idx').on(t.date)],
+);
+
+export const purchase_return_items = sqliteTable(
+  'purchase_return_items',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    return_id: integer()
+      .notNull()
+      .references(() => purchase_returns.id),
+    purchase_item_id: integer()
+      .notNull()
+      .references(() => purchase_items.id),
+    variant_id: integer()
+      .notNull()
+      .references(() => product_variants.id),
+    qty: integer().notNull(),
+    unit_cost_paisa: integer().notNull(),
+    line_cost_paisa: integer().notNull(),
+  },
+  (t) => [
+    index('purchase_return_items_return_idx').on(t.return_id),
+    index('purchase_return_items_item_idx').on(t.purchase_item_id),
+    check('purchase_return_items_qty_ck', sql`${t.qty} > 0`),
+  ],
+);

@@ -22,10 +22,12 @@
     "db:migrate": "node scripts/run-cli.mjs migrate",
     "backup:now": "node scripts/run-cli.mjs backup-now",
     "verify-audit": "node scripts/run-cli.mjs verify-audit",
-    "reset-superuser": "node scripts/run-cli.mjs reset-superuser"
+    "reset-superuser": "node scripts/run-cli.mjs reset-superuser",
+    "test:e2e": "npm run build && playwright test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.13.0",

@@ -11,6 +11,8 @@ import { useCategories, useProducts } from '@/features/products/api';
 import { BulkUpdateDialog } from '@/features/products/BulkUpdateDialog';
 import { ProductFormDialog } from '@/features/products/ProductFormDialog';
 import { ProductPicker } from '@/features/products/ProductPicker';
+import { LowStockPanel, StockValuePanel } from '@/features/products/StockPanels';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
 
@@ -28,6 +30,7 @@ export function ProductsPage() {
   const [adding, setAdding] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [tab, setTab] = useState('products');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const deferred = useDeferredValue(q.trim());
   const categories = useCategories();
@@ -49,7 +52,6 @@ export function ProductsPage() {
     <div>
       <PageHeader
         title="Products & Stock"
-        description="Stock grids, low stock and movement history arrive with purchases (phase 3)."
         actions={
           <>
             <Button variant="outline" onClick={() => setPicking(true)}>
@@ -68,6 +70,21 @@ export function ProductsPage() {
           </>
         }
       />
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="low">Low stock</TabsTrigger>
+          {showMargin && <TabsTrigger value="value">Stock value</TabsTrigger>}
+        </TabsList>
+        <TabsContent value="low" className="pt-0">
+          {tab === 'low' && <LowStockPanel />}
+        </TabsContent>
+        {showMargin && (
+          <TabsContent value="value" className="pt-0">
+            {tab === 'value' && <StockValuePanel />}
+          </TabsContent>
+        )}
+        <TabsContent value="products" className="pt-0">
       <div className="mb-4 flex flex-wrap gap-2">
         <Input className="w-72" placeholder="Item code, name or category" value={q} onChange={(e) => setQ(e.target.value)} />
         <NativeSelect className="w-48" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
@@ -167,6 +184,9 @@ export function ProductsPage() {
           )}
         </div>
       )}
+
+        </TabsContent>
+      </Tabs>
 
       {adding && <ProductFormDialog onClose={() => setAdding(false)} onSaved={(p) => navigate(`/products/${p.id}`)} />}
       {bulk && (
