@@ -1,0 +1,41 @@
+{
+  "name": "shopledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/shared",
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w @shopledger/web && npm run build -w @shopledger/server",
+    "start": "node apps/server/dist/server.js",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "db:generate": "npm run db:generate -w @shopledger/server",
+    "db:migrate": "node scripts/run-cli.mjs migrate",
+    "backup:now": "node scripts/run-cli.mjs backup-now",
+    "verify-audit": "node scripts/run-cli.mjs verify-audit",
+    "reset-superuser": "node scripts/run-cli.mjs reset-superuser"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}
