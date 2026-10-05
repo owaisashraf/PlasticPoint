@@ -17,6 +17,7 @@ export const DOC_TYPES = {
   sales_return: 'prefix_sales_return',
   purchase_return: 'prefix_purchase_return',
   receipt: 'prefix_receipt',
+  refund: 'prefix_refund',
   supplier_payment: 'prefix_supplier_payment',
   write_off: 'prefix_write_off',
   expense: 'prefix_expense',

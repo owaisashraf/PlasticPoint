@@ -89,3 +89,16 @@ export function computeSale(lines: readonly SaleLineInputs[], extraDiscountPaisa
 export function profitBp(profitPaisa: number, grossPaisa: number): number {
   return grossPaisa === 0 ? 0 : roundDiv(profitPaisa * 10_000, grossPaisa);
 }
+
+// --- Returns (CLAUDE.md 8.7) ---------------------------------------------------------
+
+/**
+ * The credit for returning `qty` of a sale line: qty × (line net ÷ line qty),
+ * rounded half-up. When this return takes everything still left on the line,
+ * it gets exactly what has not been credited yet, so all the credits for a
+ * line add up to its line net to the paisa.
+ */
+export function returnedNetForLine(line: { line_net_paisa: number; qty: number }, qty: number, qtyLeft: number, alreadyCreditedPaisa: number): number {
+  if (!Number.isInteger(qty) || qty <= 0 || qty > qtyLeft) throw new Error('Returned quantity must be between 1 and what is left on the line');
+  return qty === qtyLeft ? line.line_net_paisa - alreadyCreditedPaisa : roundDiv(line.line_net_paisa * qty, line.qty);
+}

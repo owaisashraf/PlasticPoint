@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CUSTOMER_STATUSES, CUSTOMER_TYPES } from './customers';
+import { ALLOCATION_SOURCES } from './payments';
 import { bpSchema, businessDateSchema, listQuerySchema, nonNegativePaisaSchema, optionalText } from './common';
 
 // --- Input -----------------------------------------------------------------------
@@ -161,6 +162,8 @@ export type SaleCheckResult = z.infer<typeof saleCheckResultSchema>;
 export const saleLineSchema = z.object({
   id: z.number().int(),
   line_no: z.number().int(),
+  /** Already returned on posted sales returns. */
+  returned_qty: z.number().int(),
   variant_id: z.number().int(),
   product_id: z.number().int(),
   item_code: z.string(),
@@ -173,13 +176,17 @@ export const saleLineSchema = z.object({
 });
 export type SaleLine = z.infer<typeof saleLineSchema>;
 
-export const saleReceiptSchema = z.object({
-  payment_id: z.number().int(),
-  doc_no: z.string(),
-  date: z.string(),
-  method: z.string(),
+/** What has reduced this invoice: receipts, credit notes and write-offs. */
+export const saleAllocationSchema = z.object({
+  source_type: z.enum(ALLOCATION_SOURCES),
+  source_id: z.number().int(),
+  doc_no: z.string().nullable(),
+  date: z.string().nullable(),
+  method: z.string().nullable(),
   amount_paisa: z.number().int(),
+  is_manual: z.boolean(),
 });
+export type SaleAllocation = z.infer<typeof saleAllocationSchema>;
 
 export const saleSchema = z.object({
   id: z.number().int(),
@@ -215,6 +222,9 @@ export const saleSchema = z.object({
   item_count: z.number().int(),
   total_qty: z.number().int(),
   lines: z.array(saleLineSchema).optional(),
-  receipts: z.array(saleReceiptSchema).optional(),
+  allocations: z.array(saleAllocationSchema).optional(),
+  returns: z
+    .array(z.object({ id: z.number().int(), doc_no: z.string(), date: z.string(), reason: z.string(), total_paisa: z.number().int(), status: z.enum(['posted', 'void']) }))
+    .optional(),
 });
 export type Sale = z.infer<typeof saleSchema>;

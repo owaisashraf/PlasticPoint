@@ -9,6 +9,8 @@ import {
 import type { AppInstance } from '../../app';
 import { currentUser, requirePermission } from '../../lib/permissions';
 import { redact } from '../../lib/redact';
+import { renderStatementPdf } from '../../pdf/statement';
+import { getSettings } from '../settings/service';
 import { auditActor } from '../auth/service';
 import {
   createCustomer,
@@ -40,6 +42,18 @@ export async function customerRoutes(app: AppInstance) {
   app.get('/api/customers/:id/ledger', { ...view, schema: { params: idParamSchema, querystring: statementQuerySchema } }, async (req) =>
     redact(customerStatement(ctx.dbh.db, req.params.id, req.query), req.user),
   );
+
+  // Statement PDF: opens in a new tab to print, or to send to the customer.
+  app.get('/api/customers/:id/statement.pdf', { ...view, schema: { params: idParamSchema, querystring: statementQuerySchema } }, async (req, reply) => {
+    const db = ctx.dbh.db;
+    const c = getCustomer(db, req.params.id);
+    const pdf = await renderStatementPdf(getSettings(db), { kind: 'customer', ...c }, customerStatement(db, c.id, req.query), req.query);
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `inline; filename="Statement ${c.code}.pdf"`)
+      .header('Cache-Control', 'no-store')
+      .send(pdf);
+  });
 
   app.post('/api/customers', { ...manage, schema: { body: createCustomerSchema } }, async (req) => ({
     customer: redact(createCustomer(ctx.dbh.db, auditActor(currentUser(req)), req.body), req.user),

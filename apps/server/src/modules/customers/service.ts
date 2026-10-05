@@ -12,6 +12,7 @@ import { customers } from '../../db/schema';
 import { writeAudit, type AuditActor } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
 import { badRequest, notFound } from '../../lib/errors';
+import { recalcAllocations } from '../../lib/allocation';
 import { balanceColumnSql, getOpeningBalance, setOpeningBalance, statement } from '../../lib/ledger';
 import { nextCustomerCode } from '../../lib/numbering';
 import { getSetting } from '../settings/service';
@@ -186,7 +187,11 @@ export function updateCustomer(db: DB, actor: AuditActor, id: number, input: Upd
       set.updated_at = nowIso();
       after = tx.update(customers).set(set).where(eq(customers.id, id)).returning().get();
     }
-    if (openingChanged) setOpeningBalance(tx, 'customer', id, newOpening, newOpeningDate);
+    if (openingChanged) {
+      setOpeningBalance(tx, 'customer', id, newOpening, newOpeningDate);
+      // The opening balance is the oldest debt (or an advance) in allocation.
+      recalcAllocations(tx, id);
+    }
 
     const changed = [...Object.keys(set).filter((k) => k !== 'updated_at'), ...(openingChanged ? ['opening_balance'] : [])];
     writeAudit(tx, actor, {

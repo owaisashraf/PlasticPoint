@@ -20,7 +20,10 @@ import { changelogRoutes } from './modules/changelog/routes';
 import { customerRoutes } from './modules/customers/routes';
 import { productRoutes } from './modules/products/routes';
 import { purchaseRoutes } from './modules/purchases/routes';
+import { paymentRoutes } from './modules/payments/routes';
+import { returnRoutes } from './modules/returns/routes';
 import { saleRoutes } from './modules/sales/routes';
+import { writeOffRoutes } from './modules/write-offs/routes';
 import { getSetting } from './modules/settings/service';
 import { settingsRoutes } from './modules/settings/routes';
 import { stockRoutes } from './modules/stock/routes';
@@ -136,6 +139,9 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
   await productRoutes(app);
   await purchaseRoutes(app);
   await saleRoutes(app);
+  await paymentRoutes(app);
+  await returnRoutes(app);
+  await writeOffRoutes(app);
   await stockRoutes(app);
 
   if (ctx.config.webDistDir) {

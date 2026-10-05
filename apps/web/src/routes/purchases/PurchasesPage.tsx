@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatPaisa, formatPhone, paisaToInput, parseRupeesToPaisa, type Supplier } from '@shopledger/shared';
-import { Pencil, Plus } from 'lucide-react';
+import { FileText, Landmark, Pencil, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCan } from '@/features/auth/useAuth';
 import { usePurchases } from '@/features/purchases/api';
+import { openStatement } from '@/features/payments/api';
+import { PaySupplierDialog } from '@/features/payments/PaySupplierDialog';
 import { api, ApiError, errorMessage } from '@/lib/api';
 
 const SUPPLIERS_KEY = ['suppliers'] as const;
@@ -135,6 +137,7 @@ function SupplierPanel() {
     queryFn: () => api.get<{ suppliers: Supplier[] }>('/api/suppliers').then((r) => r.suppliers),
   });
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
+  const [paying, setPaying] = useState(false);
 
   if (isPending) return <p>Loading…</p>;
   if (isError) return <p className="text-destructive">{errorMessage(error)}</p>;
@@ -159,11 +162,21 @@ function SupplierPanel() {
         <Card key={s.id} className="max-w-3xl">
           <CardHeader className="flex-row items-start justify-between">
             <CardTitle>{s.name}</CardTitle>
-            {can('suppliers.manage') && (
-              <Button variant="outline" size="sm" onClick={() => setEditing(s)}>
-                <Pencil /> Edit
+            <div className="flex gap-2">
+              {can('payments.create') && s.active && (
+                <Button size="sm" onClick={() => setPaying(true)}>
+                  <Landmark /> Pay supplier
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => openStatement('suppliers', s.id, {})}>
+                <FileText /> Statement PDF
               </Button>
-            )}
+              {can('suppliers.manage') && (
+                <Button variant="outline" size="sm" onClick={() => setEditing(s)}>
+                  <Pencil /> Edit
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-1 gap-x-8 gap-y-2 md:grid-cols-2">
@@ -184,6 +197,7 @@ function SupplierPanel() {
           </CardContent>
         </Card>
       ))}
+      {paying && <PaySupplierDialog suppliers={data} onClose={() => setPaying(false)} />}
       {editing && <SupplierFormDialog supplier={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
     </div>
   );

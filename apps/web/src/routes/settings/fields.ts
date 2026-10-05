@@ -106,6 +106,7 @@ export const SECTIONS: SectionDef[] = [
       { key: 'prefix_sales_return', label: 'Sales return', kind: 'text' },
       { key: 'prefix_purchase_return', label: 'Purchase return', kind: 'text' },
       { key: 'prefix_receipt', label: 'Receipt', kind: 'text' },
+      { key: 'prefix_refund', label: 'Refund', kind: 'text' },
       { key: 'prefix_supplier_payment', label: 'Supplier payment', kind: 'text' },
       { key: 'prefix_write_off', label: 'Write-off', kind: 'text' },
       { key: 'prefix_expense', label: 'Expense', kind: 'text' },

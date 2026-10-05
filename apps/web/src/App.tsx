@@ -17,6 +17,8 @@ import { ProductsPage } from './routes/products/ProductsPage';
 import { NewPurchasePage } from './routes/purchases/NewPurchasePage';
 import { PurchaseDetailPage } from './routes/purchases/PurchaseDetailPage';
 import { PurchasesPage } from './routes/purchases/PurchasesPage';
+import { PaymentsPage } from './routes/payments/PaymentsPage';
+import { ReturnsPage } from './routes/returns/ReturnsPage';
 import { NewSalePage } from './routes/sales/NewSalePage';
 import { SaleDetailPage } from './routes/sales/SaleDetailPage';
 import { SalesPage } from './routes/sales/SalesPage';
@@ -31,6 +33,8 @@ const BUILT_PAGES: Record<string, ReactNode> = {
   '/sales/new': <NewSalePage />,
   '/sales': <SalesPage />,
   '/purchases': <PurchasesPage />,
+  '/payments': <PaymentsPage />,
+  '/returns': <ReturnsPage />,
   '/change-history': <ChangeHistoryPage />,
 };
 

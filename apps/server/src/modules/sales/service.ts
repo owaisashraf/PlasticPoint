@@ -15,7 +15,8 @@ import {
 } from '@shopledger/shared';
 import type { z } from 'zod';
 import { writeTx, type DB, type DbOrTx } from '../../db/client';
-import { customers, ledger_entries, payment_allocations, payments, product_variants, products, sale_items, sales, users } from '../../db/schema';
+import { customers, ledger_entries, payment_allocations, payments, product_variants, products, sale_items, sales, sales_return_items, sales_returns, users } from '../../db/schema';
+import { recalcAllocations } from '../../lib/allocation';
 import { writeAudit, type AuditActor } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
 import { badRequest, conflict, notFound } from '../../lib/errors';
@@ -392,6 +393,8 @@ export function createSale(db: DB, user: SessionUser, input: CreateInput, approv
     });
 
     if (input.cash_received_paisa > 0) postCounterReceipt(tx, user, header, customer, input.cash_received_paisa);
+    // Any advance the customer holds is applied to this invoice.
+    recalcAllocations(tx, customer.id);
 
     return getSale(tx, header.id);
   });
@@ -404,6 +407,7 @@ function postCounterReceipt(tx: DbOrTx, user: SessionUser, sale: typeof sales.$i
     .insert(payments)
     .values({
       doc_no: nextDocNo(tx, 'receipt'),
+      kind: 'receipt',
       party_type: 'customer',
       party_id: customer.id,
       date: sale.date,
@@ -423,7 +427,7 @@ function postCounterReceipt(tx: DbOrTx, user: SessionUser, sale: typeof sales.$i
   // Manual: the money was paid for this invoice, so automatic re-allocation keeps it there.
   const allocation = tx
     .insert(payment_allocations)
-    .values({ source_type: 'payment', source_id: payment.id, sale_id: sale.id, amount_paisa: amount, is_manual: true, created_at: now })
+    .values({ customer_id: customer.id, source_type: 'payment', source_id: payment.id, sale_id: sale.id, amount_paisa: amount, is_manual: true, created_at: now })
     .returning()
     .get();
   postEntry(tx, {
@@ -526,6 +530,16 @@ function toSale(r: HeaderRow): Sale {
 }
 
 function loadLines(db: DbOrTx, saleId: number): SaleLine[] {
+  const returned = new Map(
+    db
+      .select({ id: sales_return_items.sale_item_id, q: sql<number>`sum(${sales_return_items.qty})` })
+      .from(sales_return_items)
+      .innerJoin(sales_returns, eq(sales_returns.id, sales_return_items.return_id))
+      .where(and(eq(sales_returns.sale_id, saleId), eq(sales_returns.status, 'posted')))
+      .groupBy(sales_return_items.sale_item_id)
+      .all()
+      .map((r) => [r.id, r.q]),
+  );
   return db
     .select({ i: sale_items, v: product_variants, p: products })
     .from(sale_items)
@@ -537,6 +551,7 @@ function loadLines(db: DbOrTx, saleId: number): SaleLine[] {
     .map(({ i, v, p }) => ({
       id: i.id,
       line_no: i.line_no,
+      returned_qty: returned.get(i.id) ?? 0,
       variant_id: i.variant_id,
       product_id: p.id,
       item_code: p.item_code,
@@ -563,14 +578,37 @@ function loadLines(db: DbOrTx, saleId: number): SaleLine[] {
 export function getSale(db: DbOrTx, id: number): Sale {
   const r = headerQuery(db).where(eq(sales.id, id)).get();
   if (!r) throw notFound('Sale not found.');
-  const receipts = db
-    .select({ payment_id: payments.id, doc_no: payments.doc_no, date: payments.date, method: payments.method, amount_paisa: payment_allocations.amount_paisa })
+  return { ...toSale(r), lines: loadLines(db, id), allocations: saleAllocations(db, id), returns: saleReturns(db, id) };
+}
+
+/** Receipts, credit notes and write-offs that reduced this invoice. */
+function saleAllocations(db: DbOrTx, saleId: number): NonNullable<Sale['allocations']> {
+  const docNo = sql<string | null>`CASE ${payment_allocations.source_type}
+    WHEN 'payment' THEN (SELECT doc_no FROM payments WHERE id = ${payment_allocations.source_id})
+    WHEN 'sales_return' THEN (SELECT doc_no FROM sales_returns WHERE id = ${payment_allocations.source_id})
+    WHEN 'write_off' THEN (SELECT doc_no FROM write_offs WHERE id = ${payment_allocations.source_id})
+    ELSE NULL END`;
+  const date = sql<string | null>`CASE ${payment_allocations.source_type}
+    WHEN 'payment' THEN (SELECT date FROM payments WHERE id = ${payment_allocations.source_id})
+    WHEN 'sales_return' THEN (SELECT date FROM sales_returns WHERE id = ${payment_allocations.source_id})
+    WHEN 'write_off' THEN (SELECT date FROM write_offs WHERE id = ${payment_allocations.source_id})
+    ELSE NULL END`;
+  const method = sql<string | null>`CASE ${payment_allocations.source_type} WHEN 'payment' THEN (SELECT method FROM payments WHERE id = ${payment_allocations.source_id}) ELSE NULL END`;
+  return db
+    .select({ source_type: payment_allocations.source_type, source_id: payment_allocations.source_id, doc_no: docNo, date, method, amount_paisa: payment_allocations.amount_paisa, is_manual: payment_allocations.is_manual })
     .from(payment_allocations)
-    .innerJoin(payments, eq(payments.id, payment_allocations.source_id))
-    .where(and(eq(payment_allocations.sale_id, id), eq(payment_allocations.source_type, 'payment')))
-    .orderBy(asc(payments.date), asc(payments.id))
+    .where(eq(payment_allocations.sale_id, saleId))
+    .orderBy(asc(date), asc(payment_allocations.id))
     .all();
-  return { ...toSale(r), lines: loadLines(db, id), receipts };
+}
+
+function saleReturns(db: DbOrTx, saleId: number): NonNullable<Sale['returns']> {
+  return db
+    .select({ id: sales_returns.id, doc_no: sales_returns.doc_no, date: sales_returns.date, reason: sales_returns.reason, total_paisa: sales_returns.total_paisa, status: sales_returns.status })
+    .from(sales_returns)
+    .where(eq(sales_returns.sale_id, saleId))
+    .orderBy(asc(sales_returns.id))
+    .all();
 }
 
 export function listSales(db: DB, q: ListQuery): { sales: Sale[]; total: number } {

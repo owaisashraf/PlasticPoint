@@ -1,10 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–4 on a fresh database, in order:
+// A click-through of phases 1–5 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
 // share) → a below-cost sale needs the owner password → owner sees profit →
+// payments (FIFO), a return with refund, a bounced cheque and a write-off →
 // superuser verifies the audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
@@ -345,7 +346,101 @@ test('9. owner sees profit on sales', async ({ page }) => {
   await logout(page);
 });
 
-test('10. superuser verifies the audit log', async ({ page }) => {
+test('10. operator receives a payment, applied oldest first', async ({ page }) => {
+  await login(page, 'ali', PW.operator);
+  await nav(page, 'Payments').click();
+  await expect(page.getByRole('heading', { name: 'Payments', exact: true })).toBeVisible();
+  await page.keyboard.press('F2');
+  await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Bilal');
+  await page.getByRole('option', { name: /Bilal Traders/ }).click();
+  const rd = page.getByRole('dialog');
+  await expect(rd.getByText('Receive payment')).toBeVisible();
+  await rd.getByLabel('Amount received').fill('2000');
+  // INV-000001 has Rs 1,772 left, INV-000002 Rs 840: FIFO pays 1,772 then 228.
+  await expect(rd.getByRole('row', { name: /INV-000001/ })).toContainText('Rs 1,772');
+  await expect(rd.getByRole('row', { name: /INV-000002/ })).toContainText('Rs 228');
+  await expect(rd.getByText('Kept as advance Rs 0')).toBeVisible();
+  await shot(page, '25-receive-payment-fifo');
+  await rd.getByRole('button', { name: /Save receipt/ }).click();
+  await expect(page.getByText('Receipt RCV-000002 saved.')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'RCV-000002' })).toBeVisible();
+  await shot(page, '26-payments-list');
+});
+
+test('11. operator takes a return from an invoice and pays part back', async ({ page }) => {
+  await login(page, 'ali', PW.operator);
+  await nav(page, 'Returns').click();
+  await page.getByLabel('Return from invoice number').fill('INV-000002');
+  await page.getByLabel('Return from invoice number').press('Enter');
+  const rd = page.getByRole('dialog');
+  await expect(rd.getByText('Return items from INV-000002')).toBeVisible();
+  await rd.getByLabel(/Return quantity for B-101 Blue 15L/).fill('1');
+  await rd.getByLabel('Reason').fill('Handle broken');
+  await expect(rd.getByText('Credit Rs 840')).toBeVisible();
+  // Rs 228 of the invoice was paid, so that much is paid back in cash.
+  await rd.getByLabel('Pay money back now').check();
+  await rd.getByLabel('Refund amount').fill('228');
+  await shot(page, '27-sales-return-dialog');
+  await rd.getByRole('button', { name: 'Save return' }).click();
+  await expect(page.getByText('Return SRN-000001 saved: Rs 840 credited, Rs 228 paid back.')).toBeVisible();
+  await expect(page.getByText(/SRN-000001 · .* · Handle broken/)).toBeVisible();
+  await shot(page, '28-sale-after-return');
+
+  await nav(page, 'Customers').click();
+  await page.getByRole('cell', { name: 'Bilal Traders' }).click();
+  await expect(page.getByRole('heading', { name: 'Bilal Traders', exact: true })).toBeVisible();
+  await expect(page.getByText('Rs 0', { exact: true }).first()).toBeVisible();
+  await page.getByRole('tab', { name: 'Ledger' }).click();
+  await shot(page, '29-customer-ledger-after-return');
+});
+
+test('12. owner: a cheque bounces, then the debt is written off', async ({ page, context }) => {
+  await login(page, 'owner', PW.owner);
+  await nav(page, 'Customers').click();
+  await page.getByRole('cell', { name: 'Ahmed Khan' }).click();
+  await expect(page.getByRole('heading', { name: 'Ahmed Khan', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Record payment' }).click();
+  const rd = page.getByRole('dialog');
+  await rd.getByLabel('Amount received').fill('45000');
+  await rd.getByLabel('Method').selectOption('cheque');
+  await rd.getByLabel('Cheque no.').fill('112233');
+  await rd.getByLabel('Bank', { exact: true }).fill('HBL');
+  await expect(rd.getByRole('row', { name: /Opening balance/ })).toContainText('Rs 45,000');
+  await rd.getByRole('button', { name: /Save receipt/ }).click();
+  await expect(page.getByText('Receipt RCV-000003 saved.')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Payments' }).click();
+  await page.getByRole('cell', { name: /RCV-000003/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Mark cheque bounced' }).click();
+  await page.getByRole('dialog').getByLabel('Reason').fill('Insufficient funds');
+  await shot(page, '30-bounce-cheque');
+  await page.getByRole('dialog').getByRole('button', { name: 'Mark bounced' }).click();
+  await expect(page.getByText('Cheque marked as bounced.')).toBeVisible();
+  await expect(page.getByRole('cell', { name: /RCV-000003 Bounced/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Write off' }).click();
+  const wd = page.getByRole('dialog');
+  await expect(wd.getByLabel('Amount')).toHaveValue('45000');
+  await wd.getByLabel('Reason').fill('Shop closed, owner unreachable');
+  await wd.getByRole('button', { name: 'Write off' }).click();
+  await expect(page.getByText('Written off.')).toBeVisible();
+  await expect(page.getByText('WOF-000001')).toBeVisible();
+  await shot(page, '31-write-off');
+
+  // Statement PDF opens in a new tab.
+  await page.getByRole('tab', { name: 'Ledger' }).click();
+  const [popup, pdf] = await Promise.all([
+    context.waitForEvent('page'),
+    context.waitForEvent('response', (r) => r.url().includes('/statement.pdf')),
+    page.getByRole('button', { name: 'Statement PDF' }).click(),
+  ]);
+  expect(pdf.status()).toBe(200);
+  await popup.close();
+  await shot(page, '32-ledger-bounce-write-off');
+  await logout(page);
+});
+
+test('13. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

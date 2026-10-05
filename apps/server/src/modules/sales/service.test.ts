@@ -207,12 +207,12 @@ describe('cash received at the counter', () => {
     const before = t.auditCount();
     const sale = await sellOk('operator', { cash_received_paisa: 50_000 });
     expect(sale).toMatchObject({ paid_paisa: 50_000, outstanding_paisa: 40_000 });
-    expect(sale.receipts).toEqual([{ payment_id: 1, doc_no: 'RCV-000001', date: '2026-10-05', method: 'cash', amount_paisa: 50_000 }]);
+    expect(sale.allocations).toEqual([{ source_type: 'payment', source_id: 1, doc_no: 'RCV-000001', date: '2026-10-05', method: 'cash', amount_paisa: 50_000, is_manual: true }]);
     expect(await balance()).toBe(40_000);
     expect(t.auditCount()).toBe(before + 2);
     expect(lastAudit()).toMatchObject({ entity: 'payment', doc_no: 'RCV-000001' });
-    const alloc = t.dbh.sqlite.prepare('SELECT source_type, sale_id, amount_paisa, is_manual FROM payment_allocations').all();
-    expect(alloc).toEqual([{ source_type: 'payment', sale_id: sale.id, amount_paisa: 50_000, is_manual: 1 }]);
+    const alloc = t.dbh.sqlite.prepare('SELECT customer_id, source_type, sale_id, amount_paisa, is_manual FROM payment_allocations').all();
+    expect(alloc).toEqual([{ customer_id: customer.id, source_type: 'payment', sale_id: sale.id, amount_paisa: 50_000, is_manual: 1 }]);
   });
 
   it('refuses more cash than the invoice', async () => {

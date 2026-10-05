@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatPaisa, formatPhone, type Customer, type LedgerLine } from '@shopledger/shared';
-import { ArrowLeft, Ban, Pencil, ShieldAlert, ShieldCheck, UserCheck } from 'lucide-react';
+import { formatPaisa, formatPhone, type Customer, type LedgerLine, type WriteOff } from '@shopledger/shared';
+import { ArrowLeft, Ban, Eraser, FileText, HandCoins, Pencil, ShieldAlert, ShieldCheck, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -12,6 +12,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SalesTable } from '@/features/sales/SalesTable';
+import { openStatement, useWriteOffs } from '@/features/payments/api';
+import { PaymentsTable } from '@/features/payments/PaymentsTable';
+import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
+import { SalesReturnsTable } from '@/features/payments/SalesReturnsTable';
+import { WriteOffDialog } from '@/features/payments/WriteOffDialog';
 import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
@@ -26,6 +31,7 @@ const ENTRY_LABEL: Record<LedgerLine['entry_type'], string> = {
   write_off: 'Write-off',
   write_off_reversal: 'Write-off reversed',
   bounced_cheque: 'Cheque bounced',
+  refund: 'Refund paid',
   purchase: 'Purchase',
   supplier_payment: 'Payment',
   purchase_return: 'Purchase return',
@@ -37,7 +43,7 @@ export function CustomerDetailPage() {
   const qc = useQueryClient();
   const { data: c, isPending, isError, error } = useCustomer(id);
   const [editing, setEditing] = useState(false);
-  const [dialog, setDialog] = useState<'mark' | 'clear' | 'deactivate' | null>(null);
+  const [dialog, setDialog] = useState<'mark' | 'clear' | 'deactivate' | 'pay' | 'write_off' | null>(null);
 
   const action = useMutation({
     mutationFn: ({ kind, reason }: { kind: 'mark' | 'clear' | 'deactivate' | 'activate'; reason?: string }) => {
@@ -73,6 +79,16 @@ export function CustomerDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {can('payments.create') && (
+            <Button onClick={() => setDialog('pay')}>
+              <HandCoins /> Record payment
+            </Button>
+          )}
+          {can('write_offs.manage') && c.balance_paisa > 0 && (
+            <Button variant="outline" onClick={() => setDialog('write_off')}>
+              <Eraser /> Write off
+            </Button>
+          )}
           {can('customers.manage') && (
             <Button variant="outline" onClick={() => setEditing(true)}>
               <Pencil /> Edit
@@ -153,13 +169,14 @@ export function CustomerDetailPage() {
           <SalesTable customerId={c.id} />
         </TabsContent>
         <TabsContent value="payments">
-          <Later what="Payments" phase={5} />
+          <PaymentsTable customerId={c.id} />
+          <WriteOffsCard c={c} />
         </TabsContent>
         <TabsContent value="returns">
-          <Later what="Returns" phase={5} />
+          <SalesReturnsTable customerId={c.id} />
         </TabsContent>
         <TabsContent value="items">
-          <Later what="Items bought" phase={5} />
+          <Later what="Items bought" phase={9} />
         </TabsContent>
         <TabsContent value="notes">
           <Card>
@@ -168,12 +185,14 @@ export function CustomerDetailPage() {
         </TabsContent>
         {can('finance.view') && (
           <TabsContent value="profit">
-            <Later what="Profit from this customer" phase={5} />
+            <Later what="Profit from this customer" phase={9} />
           </TabsContent>
         )}
       </Tabs>
 
       {editing && <CustomerFormDialog customer={c} onClose={() => setEditing(false)} />}
+      {dialog === 'pay' && <ReceivePaymentDialog customer={c} onClose={() => setDialog(null)} />}
+      {dialog === 'write_off' && <WriteOffDialog mode="create" customerId={c.id} customerName={c.name} max={c.balance_paisa} onClose={() => setDialog(null)} />}
       {dialog === 'mark' && (
         <ReasonDialog
           title={`Mark ${c.name} as bad debt?`}
@@ -275,6 +294,9 @@ function LedgerTab({ id }: { id: number }) {
         <label className="text-sm">
           To <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-44" />
         </label>
+        <Button variant="outline" className="ml-auto" onClick={() => openStatement('customers', id, { from: from || undefined, to: to || undefined })}>
+          <FileText /> Statement PDF
+        </Button>
       </div>
       {isPending && <p>Loading…</p>}
       {isError && <p className="text-destructive">{errorMessage(error)}</p>}
@@ -323,5 +345,44 @@ function LedgerTab({ id }: { id: number }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Write-offs of this customer; owner+ can take part of one back when the customer pays after all. */
+function WriteOffsCard({ c }: { c: Customer }) {
+  const can = useCan();
+  const { data } = useWriteOffs(c.id);
+  const [reversing, setReversing] = useState<WriteOff | null>(null);
+  if (!data || data.length === 0) return null;
+  return (
+    <Card className="mt-5">
+      <CardHeader>
+        <CardTitle>Written off</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="flex flex-col gap-2">
+          {data.map((w) => {
+            const left = w.amount_paisa - w.reversed_paisa;
+            return (
+              <li key={w.id} className="flex flex-wrap items-center gap-3">
+                <span className="font-mono font-semibold">{w.doc_no}</span>
+                <span>{w.date}</span>
+                <span className="text-muted-foreground">{w.reason}</span>
+                <span className="amount ml-auto">{formatPaisa(w.amount_paisa)}</span>
+                {w.reversed_paisa > 0 && <span className="text-sm text-green-800">{formatPaisa(w.reversed_paisa)} taken back</span>}
+                {can('write_offs.manage') && left > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setReversing(w)}>
+                    Customer paid — reverse
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+      {reversing && (
+        <WriteOffDialog mode="reverse" customerId={c.id} customerName={c.name} max={reversing.amount_paisa - reversing.reversed_paisa} writeOff={reversing} onClose={() => setReversing(null)} />
+      )}
+    </Card>
   );
 }

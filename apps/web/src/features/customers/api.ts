@@ -27,10 +27,11 @@ export function useCustomers(f: CustomerFilters, enabled = true) {
   });
 }
 
-export function useCustomer(id: number) {
+export function useCustomer(id: number, enabled = true) {
   return useQuery({
     queryKey: [...CUSTOMERS_KEY, 'one', id],
     queryFn: () => api.get<{ customer: Customer }>(`/api/customers/${id}`).then((r) => r.customer),
+    enabled,
   });
 }
 

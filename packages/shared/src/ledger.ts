@@ -12,6 +12,7 @@ export const LEDGER_ENTRY_TYPES = [
   'write_off',
   'write_off_reversal',
   'bounced_cheque',
+  'refund',
   'purchase',
   'supplier_payment',
   'purchase_return',

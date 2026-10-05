@@ -501,12 +501,16 @@ export const sale_items = sqliteTable(
 
 // --- Payments and allocation (CLAUDE.md 8.5) ----------------------------------------
 
-/** Money received from a customer (receipt) or paid to the supplier. */
+/**
+ * Money received from a customer (receipt), paid to the supplier, or refunded
+ * to a customer for returned goods.
+ */
 export const payments = sqliteTable(
   'payments',
   {
     id: integer().primaryKey({ autoIncrement: true }),
     doc_no: text().notNull(),
+    kind: text({ enum: ['receipt', 'supplier_payment', 'refund'] }).notNull().default('receipt'),
     party_type: text({ enum: ['customer', 'supplier'] }).notNull(),
     party_id: integer().notNull(),
     date: text().notNull(),
@@ -519,6 +523,10 @@ export const payments = sqliteTable(
     status: text({ enum: ['posted', 'void', 'bounced'] }).notNull().default('posted'),
     /** Set when the money was taken at the counter together with this sale. */
     sale_id: integer().references(() => sales.id),
+    /** Refunds: the sales return the money was paid back for. */
+    sales_return_id: integer().references(() => sales_returns.id),
+    bounced_at: text(),
+    bounce_reason: text(),
     version: integer().notNull().default(1),
     notes: text(),
     created_by: integer().references(() => users.id),
@@ -534,16 +542,23 @@ export const payments = sqliteTable(
   ],
 );
 
-/** Links a payment, credit note or write-off to an invoice, reducing its outstanding amount. */
+/**
+ * Links money or credit to what it pays off (CLAUDE.md 8.5): an invoice or,
+ * when sale_id is null, the customer's owed opening balance (treated as the
+ * oldest debt). Sources are receipts, sales returns, write-offs and an
+ * opening advance (source_type 'opening_balance', source_id = customer id).
+ */
 export const payment_allocations = sqliteTable(
   'payment_allocations',
   {
     id: integer().primaryKey({ autoIncrement: true }),
-    source_type: text({ enum: ['payment', 'sales_return', 'write_off'] }).notNull(),
-    source_id: integer().notNull(),
-    sale_id: integer()
+    customer_id: integer()
       .notNull()
-      .references(() => sales.id),
+      .references(() => customers.id),
+    source_type: text({ enum: ['payment', 'sales_return', 'write_off', 'opening_balance'] }).notNull(),
+    source_id: integer().notNull(),
+    /** Null means the customer's opening balance. */
+    sale_id: integer().references(() => sales.id),
     amount_paisa: integer().notNull(),
     /** Picked by the user (kept when auto allocations are recalculated). */
     is_manual: integer({ mode: 'boolean' }).notNull().default(false),
@@ -551,7 +566,122 @@ export const payment_allocations = sqliteTable(
   },
   (t) => [
     index('payment_allocations_sale_idx').on(t.sale_id),
+    index('payment_allocations_customer_idx').on(t.customer_id),
     index('payment_allocations_source_idx').on(t.source_type, t.source_id),
     check('payment_allocations_amount_ck', sql`${t.amount_paisa} > 0`),
+  ],
+);
+
+// --- Sales returns (CLAUDE.md 8.7) -------------------------------------------------
+
+/** Goods coming back from a customer (credit note), always linked to the original invoice. */
+export const sales_returns = sqliteTable(
+  'sales_returns',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    sale_id: integer()
+      .notNull()
+      .references(() => sales.id),
+    customer_id: integer()
+      .notNull()
+      .references(() => customers.id),
+    date: text().notNull(),
+    reason: text().notNull(),
+    /** Credit given: the discounted amount the customer actually paid for these goods. */
+    total_paisa: integer().notNull(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('sales_returns_doc_no_uq').on(t.doc_no),
+    index('sales_returns_sale_idx').on(t.sale_id),
+    index('sales_returns_customer_idx').on(t.customer_id),
+    index('sales_returns_date_idx').on(t.date),
+  ],
+);
+
+export const sales_return_items = sqliteTable(
+  'sales_return_items',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    return_id: integer()
+      .notNull()
+      .references(() => sales_returns.id),
+    sale_item_id: integer()
+      .notNull()
+      .references(() => sale_items.id),
+    variant_id: integer()
+      .notNull()
+      .references(() => product_variants.id),
+    qty: integer().notNull(),
+    /** The sale line's unit cost: stock comes back in at what it went out at. */
+    unit_cost_paisa: integer().notNull(),
+    /** returned qty × (line net ÷ qty) */
+    line_net_paisa: integer().notNull(),
+    line_cost_paisa: integer().notNull(),
+    /** line net − line cost, taken off gross profit in the period of the return. */
+    profit_reversed_paisa: integer().notNull(),
+  },
+  (t) => [
+    index('sales_return_items_return_idx').on(t.return_id),
+    index('sales_return_items_item_idx').on(t.sale_item_id),
+    check('sales_return_items_qty_ck', sql`${t.qty} > 0`),
+  ],
+);
+
+// --- Bad debt (CLAUDE.md 8.8) ----------------------------------------------------
+
+export const write_offs = sqliteTable(
+  'write_offs',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    customer_id: integer()
+      .notNull()
+      .references(() => customers.id),
+    date: text().notNull(),
+    amount_paisa: integer().notNull(),
+    reason: text().notNull(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('write_offs_doc_no_uq').on(t.doc_no),
+    index('write_offs_customer_idx').on(t.customer_id),
+    index('write_offs_date_idx').on(t.date),
+    check('write_offs_amount_ck', sql`${t.amount_paisa} > 0`),
+  ],
+);
+
+/** A recovered bad debt: all or part of a write-off taken back (a debit), before the receipt is recorded. */
+export const write_off_reversals = sqliteTable(
+  'write_off_reversals',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    write_off_id: integer()
+      .notNull()
+      .references(() => write_offs.id),
+    customer_id: integer()
+      .notNull()
+      .references(() => customers.id),
+    date: text().notNull(),
+    amount_paisa: integer().notNull(),
+    reason: text().notNull(),
+    created_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    index('write_off_reversals_write_off_idx').on(t.write_off_id),
+    index('write_off_reversals_date_idx').on(t.date),
+    check('write_off_reversals_amount_ck', sql`${t.amount_paisa} > 0`),
   ],
 );

@@ -1,5 +1,5 @@
-import { formatBp, formatPaisa, formatPhone, roundDiv } from '@shopledger/shared';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { formatBp, formatPaisa, formatPhone, roundDiv, type SaleAllocation } from '@shopledger/shared';
+import { ArrowLeft, HandCoins, Share2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { CustomerStatusBadge } from '@/components/badges';
@@ -7,6 +7,10 @@ import { FullPageMessage } from '@/components/FullPageMessage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useCan } from '@/features/auth/useAuth';
+import { useCustomer } from '@/features/customers/api';
+import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
+import { SalesReturnDialog } from '@/features/payments/SalesReturnDialog';
 import { useSale } from '@/features/sales/api';
 import { ShareDialog } from '@/features/sales/ShareDialog';
 import { errorMessage } from '@/lib/api';
@@ -15,17 +19,27 @@ import { cn, formatDateTime } from '@/lib/utils';
 export function SaleDetailPage() {
   const id = Number(useParams().id);
   const [params, setParams] = useSearchParams();
+  const can = useCan();
   const { data: s, isPending, isError, error } = useSale(id);
+  const customer = useCustomer(s?.customer_id ?? 0, s !== undefined).data;
   const [sharing, setSharing] = useState(params.get('share') === '1');
+  const [dialog, setDialog] = useState<'pay' | 'return' | null>(params.get('return') === '1' ? 'return' : null);
 
   if (isPending) return <p>Loading…</p>;
   if (isError) return <FullPageMessage inline title="Sale not found" detail={errorMessage(error)} />;
 
   const lines = s.lines ?? [];
   const profit = s.profit_paisa;
+  const anyReturned = lines.some((l) => l.returned_qty > 0);
+  const canReturn = can('returns.create') && s.status === 'posted' && lines.some((l) => l.qty > l.returned_qty);
+  const canPay = can('payments.create') && s.status === 'posted' && s.outstanding_paisa > 0;
   const closeShare = () => {
     setSharing(false);
     if (params.has('share')) setParams({}, { replace: true });
+  };
+  const closeDialog = () => {
+    setDialog(null);
+    if (params.has('return')) setParams({}, { replace: true });
   };
 
   return (
@@ -43,9 +57,21 @@ export function SaleDetailPage() {
             {s.approved_by_name && ` · approved by ${s.approved_by_name}`}
           </p>
         </div>
-        <Button onClick={() => setSharing(true)}>
-          <Share2 /> Print / PDF / Share
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {canPay && (
+            <Button variant="outline" onClick={() => setDialog('pay')} disabled={!customer}>
+              <HandCoins /> Record payment
+            </Button>
+          )}
+          {canReturn && (
+            <Button variant="outline" onClick={() => setDialog('return')}>
+              <Undo2 /> Return items
+            </Button>
+          )}
+          <Button onClick={() => setSharing(true)}>
+            <Share2 /> Print / PDF / Share
+          </Button>
+        </div>
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -83,6 +109,7 @@ export function SaleDetailPage() {
               <th className="px-3 py-2">Color</th>
               <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2 text-right">Qty</th>
+              {anyReturned && <th className="px-3 py-2 text-right">Returned</th>}
               <th className="px-3 py-2 text-right">Price</th>
               <th className="px-3 py-2 text-right">Discount %</th>
               <th className="px-3 py-2 text-right">Amount</th>
@@ -102,6 +129,7 @@ export function SaleDetailPage() {
                   <td className="px-3 py-1.5">{l.color || '—'}</td>
                   <td className="px-3 py-1.5">{l.size || '—'}</td>
                   <td className="amount px-3 py-1.5">{l.qty}</td>
+                  {anyReturned && <td className="amount px-3 py-1.5">{l.returned_qty || ''}</td>}
                   <td className="amount px-3 py-1.5">{formatPaisa(l.list_price_paisa)}</td>
                   <td className="amount px-3 py-1.5">
                     {l.discount_overridden && (
@@ -133,17 +161,35 @@ export function SaleDetailPage() {
       <div className="mt-4 flex flex-wrap justify-between gap-4">
         <div className="flex flex-col gap-3">
           {s.notes && <p>Notes: {s.notes}</p>}
-          {s.receipts && s.receipts.length > 0 && (
+          {s.allocations && s.allocations.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Payments on this invoice</CardTitle>
+                <CardTitle>Paid by</CardTitle>
               </CardHeader>
               <CardContent>
                 <ul className="flex flex-col gap-1">
-                  {s.receipts.map((r) => (
-                    <li key={r.payment_id}>
-                      <span className="font-mono font-semibold">{r.doc_no}</span> · {r.date} · {r.method}
-                      <span className="amount ml-2">{formatPaisa(r.amount_paisa)}</span>
+                  {s.allocations.map((a) => (
+                    <li key={`${a.source_type}:${a.source_id}`}>
+                      <span className="font-mono font-semibold">{a.doc_no ?? 'Opening advance'}</span> · {a.date ?? ''} · {SOURCE_LABEL[a.source_type]}
+                      {a.method ? ` (${a.method})` : ''}
+                      <span className="amount ml-2">{formatPaisa(a.amount_paisa)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+          {s.returns && s.returns.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Returns</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="flex flex-col gap-1">
+                  {s.returns.map((r) => (
+                    <li key={r.id}>
+                      <span className="font-mono font-semibold">{r.doc_no}</span> · {r.date} · {r.reason}
+                      <span className="amount ml-2">{formatPaisa(r.total_paisa)}</span>
                     </li>
                   ))}
                 </ul>
@@ -167,9 +213,18 @@ export function SaleDetailPage() {
       </div>
 
       {sharing && <ShareDialog sale={s} onClose={closeShare} />}
+      {dialog === 'pay' && customer && <ReceivePaymentDialog customer={customer} saleId={s.id} onClose={closeDialog} />}
+      {dialog === 'return' && canReturn && <SalesReturnDialog sale={s} onClose={closeDialog} />}
     </div>
   );
 }
+
+const SOURCE_LABEL: Record<SaleAllocation['source_type'], string> = {
+  payment: 'payment',
+  sales_return: 'return credit',
+  write_off: 'written off',
+  opening_balance: 'opening advance',
+};
 
 function Row({ k, v, strong }: { k: string; v: string; strong?: boolean }) {
   return (
