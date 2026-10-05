@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Today's business date in Karachi, 'YYYY-MM-DD' (the default for date fields). */
+export function todayKarachi(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+}
+
 /** "5 Oct 2026, 9:05 pm" in the business time zone. */
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat('en-PK', {

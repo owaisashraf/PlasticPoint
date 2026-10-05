@@ -8,12 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { api, ApiError, errorMessage } from '@/lib/api';
+import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
 import { METHOD_LABEL } from './ReceivePaymentDialog';
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
-}
 
 /** Pay the supplier (CLAUDE.md 10.7). Reduces what we owe on the supplier ledger. */
 export function PaySupplierDialog({ suppliers, onClose }: { suppliers: Supplier[]; onClose: () => void }) {

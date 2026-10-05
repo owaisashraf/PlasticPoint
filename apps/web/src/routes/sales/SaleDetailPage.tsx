@@ -207,6 +207,12 @@ export function SaleDetailPage() {
           {profit !== undefined && (
             <div className={cn('mt-2 border-t border-border pt-2', profit < 0 ? 'text-destructive' : 'text-green-800')}>
               <Row k="Profit" v={`${formatPaisa(profit)}${s.gross_paisa ? ` (${formatBp(roundDiv(profit * 10_000, s.gross_paisa))})` : ''}`} strong />
+              {(s.returned_profit_paisa ?? 0) !== 0 && (
+                <>
+                  <Row k="Less returned" v={`−${formatPaisa(s.returned_profit_paisa ?? 0)}`} />
+                  <Row k="Profit after returns" v={formatPaisa(profit - (s.returned_profit_paisa ?? 0))} strong />
+                </>
+              )}
             </div>
           )}
         </div>

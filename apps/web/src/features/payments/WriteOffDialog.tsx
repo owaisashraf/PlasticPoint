@@ -8,11 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
+import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
-}
 
 /**
  * Owner+: write off a bad debt (up to the balance), or reverse part of an

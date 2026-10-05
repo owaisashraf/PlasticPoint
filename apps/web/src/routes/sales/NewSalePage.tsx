@@ -39,7 +39,7 @@ import { ApprovalDialog } from '@/features/sales/ApprovalDialog';
 import { SALES_KEY } from '@/features/sales/api';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
-import { cn } from '@/lib/utils';
+import { cn, todayKarachi } from '@/lib/utils';
 
 interface Line {
   key: string;
@@ -57,10 +57,6 @@ interface Line {
   price_paisa: number;
   product_discount_bp: number;
   stock_qty: number;
-}
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
 }
 
 function loadProduct(id: number): Promise<Product> {
@@ -218,7 +214,7 @@ export function NewSalePage() {
       if (e instanceof ApiError && e.code === 'APPROVAL_REQUIRED') {
         const issues = (e.details as { issues?: SaleIssue[] } | undefined)?.issues ?? [];
         setApproval({ issues, share: v.share, error: null });
-      } else if (approval && e instanceof ApiError && e.status === 403) {
+      } else if (approval && e instanceof ApiError && (e.status === 403 || e.status === 429)) {
         setApproval({ ...approval, error: errorMessage(e) });
       } else {
         setApproval(null);
@@ -323,6 +319,11 @@ export function NewSalePage() {
           <strong>Bad debt customer.</strong> A credit sale needs owner approval. A sale paid in full now does not.
         </div>
       )}
+      {checkBody !== null && check.isError && (
+        <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-red-900">
+          The sale could not be checked: {errorMessage(check.error)}
+        </div>
+      )}
       {headerIssues.map((i) => (
         <div key={i.kind} className={cn('mb-3 rounded-md border px-4 py-2', i.severity === 'approval' ? 'border-red-300 bg-red-50 text-red-900' : 'border-amber-300 bg-amber-50 text-amber-900')}>
           {i.message}
@@ -330,7 +331,8 @@ export function NewSalePage() {
       ))}
 
       <div className="mb-3">
-        <ItemEntry loadProduct={loadProduct} onAdd={addPicks} warnAboveStock />
+        {/* The suggested discount depends on settings, so items wait until they have loaded. */}
+        {settings ? <ItemEntry loadProduct={loadProduct} onAdd={addPicks} warnAboveStock /> : <p className="text-muted-foreground">Loading…</p>}
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">

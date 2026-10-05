@@ -272,6 +272,15 @@ describe('owner approval', () => {
     expect(t.dbh.sqlite.prepare('SELECT count(*) AS n FROM sales').get()).toEqual({ n: 0 });
   });
 
+  it('guessing the owner password is stopped after 5 tries, without locking the owner out of logging in', async () => {
+    for (let i = 0; i < 5; i++) expect((await sell('operator', { approval: { username: 'owner', password: `guess-${i}` } }, [{ discount_bp: 1500 }])).statusCode).toBe(403);
+    const locked = await sell('operator', { approval: { username: 'owner', password: TEST_PASSWORD } }, [{ discount_bp: 1500 }]);
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error).toMatch(/Too many wrong passwords for owner approval/);
+    const login = await t.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'owner', password: TEST_PASSWORD } });
+    expect(login.statusCode).toBe(200);
+  });
+
   it('owners and the superuser must confirm too — selling below cost always needs approval', async () => {
     for (const role of ['owner', 'superuser'] as Role[]) {
       expect((await sell(role, {}, [{ discount_bp: 1300 }])).statusCode).toBe(409);

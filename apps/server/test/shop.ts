@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
+import type { LightMyRequestResponse } from 'fastify';
 import type { Customer, Product, Role, Sale } from '@shopledger/shared';
-import type { Response as LightMyRequestResponse } from 'light-my-request';
 import type { TestContext } from './helpers';
 
 /**

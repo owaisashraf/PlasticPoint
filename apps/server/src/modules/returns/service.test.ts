@@ -53,6 +53,9 @@ describe('sales returns', () => {
     expect(after.lines?.[0]?.returned_qty).toBe(2);
     expect(after.returns).toMatchObject([{ doc_no: 'SRN-000001', total_paisa: 180_000 }]);
     expect(after.allocations).toMatchObject([{ source_type: 'sales_return', doc_no: 'SRN-000001', amount_paisa: 180_000 }]);
+    // Owner sees the profit the return took back; operators do not.
+    expect(after).toMatchObject({ profit_paisa: 6_000, returned_profit_paisa: 4_000 });
+    expect((await shop.ok<{ sale: Sale }>('operator', 'GET', `/api/sales/${s.id}`)).sale.returned_profit_paisa).toBeUndefined();
   });
 
   it('cannot return more than sold minus already returned', async () => {

@@ -97,6 +97,30 @@ describe('login and logout', () => {
     expect(JSON.parse(lastAudit().summary_json ?? '{}')).toMatchObject({ username: 'ghost', reason: 'unknown_user' });
   });
 
+  it('locks a username for 5 minutes after 5 wrong passwords, even for the right one', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-05T06:00:00Z'));
+    t = await createTestContext();
+    const attempt = (password: string, username = 'owner') => t.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password } });
+    for (let i = 0; i < 5; i++) expect((await attempt('nope-nope')).statusCode).toBe(401);
+    const locked = await attempt(TEST_PASSWORD);
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error).toBe('Too many wrong passwords for this username. Wait 5 minutes and try again.');
+    // Other users are not affected; the lock ends after 5 minutes.
+    expect((await attempt(TEST_PASSWORD, 'operator')).statusCode).toBe(200);
+    vi.setSystemTime(new Date('2026-10-05T06:05:01Z'));
+    expect((await attempt(TEST_PASSWORD)).statusCode).toBe(200);
+  });
+
+  it('a successful login clears earlier failures', async () => {
+    t = await createTestContext();
+    const attempt = (password: string) => t.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'owner', password } });
+    for (let i = 0; i < 4; i++) await attempt('nope-nope');
+    expect((await attempt(TEST_PASSWORD)).statusCode).toBe(200);
+    for (let i = 0; i < 4; i++) expect((await attempt('nope-nope')).statusCode).toBe(401);
+    expect((await attempt(TEST_PASSWORD)).statusCode).toBe(200);
+  });
+
   it('logout ends the session and is audited', async () => {
     t = await createTestContext();
     const cookie = await t.cookie('owner');

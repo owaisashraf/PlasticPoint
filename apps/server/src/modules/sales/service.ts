@@ -461,6 +461,7 @@ const approvedBy = alias(users, 'approved_by_user');
 // subquery would bind to the subquery's own table.
 const paidSql = sql<number>`coalesce((SELECT sum(pa.amount_paisa) FROM payment_allocations pa WHERE pa.sale_id = "sales"."id"), 0)`;
 const profitSql = sql<number>`coalesce((SELECT sum(si.profit_paisa) FROM sale_items si WHERE si.sale_id = "sales"."id"), 0)`;
+const returnedProfitSql = sql<number>`coalesce((SELECT sum(ri.profit_reversed_paisa) FROM sales_return_items ri JOIN sales_returns sr ON sr.id = ri.return_id WHERE sr.sale_id = "sales"."id" AND sr.status = 'posted'), 0)`;
 
 const headerSelect = {
   s: sales,
@@ -469,6 +470,7 @@ const headerSelect = {
   approved_by_name: approvedBy.display_name,
   paid: paidSql,
   profit: profitSql,
+  returned_profit: returnedProfitSql,
   item_count: sql<number>`(SELECT count(*) FROM sale_items si WHERE si.sale_id = "sales"."id")`,
   total_qty: sql<number>`(SELECT coalesce(sum(si.qty), 0) FROM sale_items si WHERE si.sale_id = "sales"."id")`,
 };
@@ -480,6 +482,7 @@ interface HeaderRow {
   approved_by_name: string | null;
   paid: number;
   profit: number;
+  returned_profit: number;
   item_count: number;
   total_qty: number;
 }
@@ -518,6 +521,7 @@ function toSale(r: HeaderRow): Sale {
     paid_paisa: r.paid,
     outstanding_paisa: s.status === 'posted' ? s.total_paisa - r.paid : 0,
     profit_paisa: s.status === 'posted' ? r.profit : 0,
+    returned_profit_paisa: s.status === 'posted' ? r.returned_profit : 0,
     status: s.status,
     version: s.version,
     notes: s.notes,

@@ -12,14 +12,10 @@ import { Input, NativeSelect } from '@/components/ui/input';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
-import { cn } from '@/lib/utils';
+import { cn, todayKarachi } from '@/lib/utils';
 import { useOpenItems, useRefreshAfterMoney } from './api';
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', bank: 'Bank transfer', cheque: 'Cheque', online: 'Online / wallet' };
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
-}
 
 const itemKey = (i: OpenItem) => (i.sale_id === null ? 'opening' : String(i.sale_id));
 

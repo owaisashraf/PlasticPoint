@@ -15,7 +15,7 @@ import { useCan } from '@/features/auth/useAuth';
 import { PRODUCTS_KEY } from '@/features/products/api';
 import { printPurchase, PURCHASES_KEY, usePurchase } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime, todayKarachi } from '@/lib/utils';
 
 export function PurchaseDetailPage() {
   const id = Number(useParams().id);
@@ -139,10 +139,6 @@ export function PurchaseDetailPage() {
       {returning && <ReturnDialog purchase={p} onClose={() => setReturning(false)} />}
     </div>
   );
-}
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
 }
 
 function ReturnDialog({ purchase, onClose }: { purchase: Purchase; onClose: () => void }) {

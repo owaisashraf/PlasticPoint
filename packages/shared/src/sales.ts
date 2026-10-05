@@ -213,6 +213,8 @@ export const saleSchema = z.object({
   outstanding_paisa: z.number().int(),
   /** Σ line profit. Owner+ only. */
   profit_paisa: z.number().int().optional(),
+  /** Profit taken back by posted returns of this invoice. Owner+ only. */
+  returned_profit_paisa: z.number().int().optional(),
   status: z.enum(['posted', 'void']),
   version: z.number().int(),
   notes: z.string().nullable(),

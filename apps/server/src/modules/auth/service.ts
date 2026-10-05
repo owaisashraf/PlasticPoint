@@ -16,6 +16,7 @@ import { writeAudit, type AuditActor } from '../../lib/audit';
 import { nowIso } from '../../lib/dates';
 import { badRequest, conflict, forbidden, unauthorized } from '../../lib/errors';
 import { can, effectivePermissions, type SessionUser } from '../../lib/permissions';
+import { throttleFor } from '../../lib/throttle';
 import { findUserById, findUserByUsername, hashPassword, toPublicUser, userSnapshot } from '../users/service';
 import { createSession, deleteSession, deleteUserSessions } from './sessions';
 
@@ -124,6 +125,9 @@ export async function setupOwner(db: DB, actor: SessionUser, input: SetupAccount
 const LOGIN_FAILED = 'Wrong username or password.';
 
 export async function login(db: DB, input: LoginInput, meta: RequestMeta): Promise<{ user: PublicUser; token: string }> {
+  const throttle = throttleFor(db);
+  const key = `login:${input.username.trim().toLowerCase()}`;
+  throttle.assertAllowed(key, 'this username');
   const user = findUserByUsername(db, input.username);
   const ok = await bcrypt.compare(input.password, user?.password_hash ?? (await getDummyHash()));
 
@@ -140,8 +144,10 @@ export async function login(db: DB, input: LoginInput, meta: RequestMeta): Promi
         },
       }),
     );
+    if (!ok) throttle.fail(key);
     throw unauthorized(user && ok && !user.active ? 'This account has been deactivated. Ask the owner.' : LOGIN_FAILED);
   }
+  throttle.reset(key);
 
   return writeTx(db, (tx) => {
     const token = createSession(tx, user.id, meta);
@@ -206,6 +212,10 @@ export async function verifyApproval(db: DB, user: SessionUser, approval: Approv
   if (can(user, 'approvals.grant')) return approval.confirmed ? auditActor(user) : null;
   if (!approval.username || !approval.password) return null;
 
+  // Counted apart from logins, so failed approvals cannot lock the owner out of logging in.
+  const throttle = throttleFor(db);
+  const key = `approval:${approval.username.trim().toLowerCase()}`;
+  throttle.assertAllowed(key, 'owner approval');
   const approver = findUserByUsername(db, approval.username);
   const ok = await bcrypt.compare(approval.password, approver?.password_hash ?? (await getDummyHash()));
   const allowed = approver && approver.active && can({ role: approver.role, permissions: effectivePermissions(approver.role, true) }, 'approvals.grant');
@@ -218,7 +228,9 @@ export async function verifyApproval(db: DB, user: SessionUser, approval: Approv
         summary: { approver_username: approval.username, for: what, reason: !approver ? 'unknown_user' : !ok ? 'wrong_password' : 'not_allowed' },
       }),
     );
+    if (!ok) throttle.fail(key);
     throw forbidden(approver && ok ? 'Only the owner can approve this.' : 'Wrong owner username or password.');
   }
+  throttle.reset(key);
   return auditActor(approver);
 }

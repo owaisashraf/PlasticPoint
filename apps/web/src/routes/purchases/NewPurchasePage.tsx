@@ -26,7 +26,7 @@ import { PRODUCTS_KEY } from '@/features/products/api';
 import { loadPurchaseProduct, PURCHASES_KEY, useSuppliers } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
-import { cn } from '@/lib/utils';
+import { cn, todayKarachi } from '@/lib/utils';
 
 interface Line {
   key: string;
@@ -42,10 +42,6 @@ interface Line {
   margin: string;
   product_price_paisa: number;
   product_margin_bp: number;
-}
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
 }
 
 function lineAmounts(l: Line) {

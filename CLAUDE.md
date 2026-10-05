@@ -177,7 +177,7 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
   - "Today" always comes from `lib/dates.ts` (`businessToday()`), which tests can mock.
 - **Fiscal year:** controlled by `settings.fiscal_year_start_month`. The default is 7 (July–June, as in Pakistan). Yearly reports use the fiscal year, with a calendar-year option.
 - **Document numbers:**
-  - Each document type has its own sequence: `INV` sale, `PUR` purchase, `SRN` sales return, `PRN` purchase return, `RCV` receipt, `PAY` supplier payment, `WOF` write-off, `EXP` expense, `AST` asset.
+  - Each document type has its own sequence: `INV` sale, `PUR` purchase, `SRN` sales return, `PRN` purchase return, `RCV` receipt, `RFD` refund to a customer, `PAY` supplier payment, `WOF` write-off, `EXP` expense, `AST` asset.
   - The format is prefix + zero-padded number (for example `INV-000123`).
   - Numbers are assigned inside the posting transaction and are **never reused**. A voided document keeps its number.
 
@@ -261,7 +261,7 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
     - `profit_paisa` (line net − line cost)
 - **sales_returns** / **purchase_returns** + items: always linked to the original document and line, with a reason. Sales-return lines store `profit_reversed_paisa`.
 - **payments**:
-  - party_type (`customer|supplier`), party_id, date, amount_paisa
+  - kind (`receipt|supplier_payment|refund`), party_type (`customer|supplier`), party_id, date, amount_paisa
   - method (`cash|bank|cheque|online`), reference
   - for cheques: cheque_no, cheque_bank, cheque_date
   - status (`posted|void|bounced`)
@@ -320,6 +320,7 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
 - By default, receipts, credit notes and write-offs are **auto-allocated FIFO**: oldest outstanding invoice first.
 - The receipt screen lets the user pick specific invoices instead. Those allocations are saved with `is_manual=1`.
 - Any unallocated amount stays as an **advance**. It shows on the customer's account and is auto-applied to the next invoice.
+- An owed **opening balance** counts as the customer's oldest debt: FIFO pays it before any invoice (an allocation with no invoice). An opening **advance** is applied to invoices like a payment.
 - After any edit, void or return that affects a customer:
   - Recalculate that customer's **auto** allocations inside the same transaction.
   - Keep manual allocations. If a manual allocation would now be more than the invoice total, stop and return a clear error so the user can fix it.
@@ -348,6 +349,7 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
   - returned cost = returned qty × the line's `unit_cost_paisa`
   - store returned net − returned cost as `profit_reversed_paisa`
 - The customer is credited the **discounted** amount they actually paid, not the full price.
+- Optionally, money can be paid back at once: a **refund** (`RFD`, cash/bank/online) of up to the return's credit. Only the part not refunded is allocated.
 - Purchase returns work the same way in reverse (stock and supplier ledger only).
 
 ### 8.8 Bad debt

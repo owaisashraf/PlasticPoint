@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { KeyRound, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useCan, useClearSession, useMe } from '@/features/auth/useAuth';
 import { api, errorMessage } from '@/lib/api';
@@ -22,6 +22,7 @@ export function AppShell() {
   const { data: me } = useMe();
   const can = useCan();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const clearSession = useClearSession();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
@@ -65,11 +66,12 @@ export function AppShell() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === '/' || item.to === '/sales'}
+                end={item.to === '/'}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium hover:bg-muted',
-                    isActive && 'bg-primary text-primary-foreground hover:bg-primary',
+                    // "Sales" stays lit on an invoice (/sales/12) but not on New Sale (/sales/new).
+                    (item.to === '/sales' ? isActive && pathname !== '/sales/new' : isActive) && 'bg-primary text-primary-foreground hover:bg-primary',
                   )
                 }
               >
