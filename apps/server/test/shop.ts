@@ -13,8 +13,8 @@ export interface Shop {
   product: Product;
   customer: Customer;
   variant(i: number): number;
-  call(role: Role, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object): Promise<LightMyRequestResponse>;
-  ok<T = Record<string, unknown>>(role: Role, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object): Promise<T>;
+  call(role: Role, method: 'GET' | 'POST' | 'PATCH' | 'PUT', url: string, payload?: object): Promise<LightMyRequestResponse>;
+  ok<T = Record<string, unknown>>(role: Role, method: 'GET' | 'POST' | 'PATCH' | 'PUT', url: string, payload?: object): Promise<T>;
   /** Posts a sale of `qty` × variant 0 at 10% (Rs 900 each) on `date`. */
   sell(opts?: { qty?: number; date?: string; customerId?: number; cash?: number; variant?: number; discount_bp?: number }): Promise<Sale>;
   balance(customerId?: number): Promise<number>;

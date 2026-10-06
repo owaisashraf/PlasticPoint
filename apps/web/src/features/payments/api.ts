@@ -33,10 +33,11 @@ export function usePayments(f: PaymentFilters) {
   });
 }
 
-export function useOpenItems(customerId: number | null) {
+/** `excludePaymentId`: a receipt being edited, so the invoices it pays show as owed again. */
+export function useOpenItems(customerId: number | null, excludePaymentId?: number) {
   return useQuery({
-    queryKey: [...PAYMENTS_KEY, 'open-items', customerId],
-    queryFn: () => api.get<OpenItems>(`/api/customers/${customerId}/open-items`),
+    queryKey: [...PAYMENTS_KEY, 'open-items', customerId, excludePaymentId],
+    queryFn: () => api.get<OpenItems>(`/api/customers/${customerId}/open-items${excludePaymentId ? `?exclude_payment_id=${excludePaymentId}` : ''}`),
     enabled: customerId !== null,
   });
 }

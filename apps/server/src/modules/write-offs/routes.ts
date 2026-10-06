@@ -1,8 +1,8 @@
-import { createWriteOffSchema, idParamSchema, reverseWriteOffSchema } from '@shopledger/shared';
+import { createWriteOffSchema, idParamSchema, reverseWriteOffSchema, updateWriteOffSchema, voidSchema } from '@shopledger/shared';
 import type { AppInstance } from '../../app';
 import { currentUser, requirePermission } from '../../lib/permissions';
 import { getCustomer } from '../customers/service';
-import { createWriteOff, listWriteOffs, reverseWriteOff } from './service';
+import { createWriteOff, listWriteOffs, reverseWriteOff, updateWriteOff, voidWriteOff } from './service';
 
 export async function writeOffRoutes(app: AppInstance) {
   const { ctx } = app;
@@ -16,6 +16,13 @@ export async function writeOffRoutes(app: AppInstance) {
 
   app.post('/api/customers/:id/write-offs', { ...manage, schema: { params: idParamSchema, body: createWriteOffSchema } }, async (req) => ({
     write_off: createWriteOff(ctx.dbh.db, currentUser(req), req.params.id, req.body),
+  }));
+
+  app.put('/api/write-offs/:id', { ...manage, schema: { params: idParamSchema, body: updateWriteOffSchema } }, async (req) => ({
+    write_off: updateWriteOff(ctx.dbh.db, currentUser(req), req.params.id, req.body),
+  }));
+  app.post('/api/write-offs/:id/void', { ...requirePermission('documents.edit_any'), schema: { params: idParamSchema, body: voidSchema } }, async (req) => ({
+    write_off: voidWriteOff(ctx.dbh.db, currentUser(req), req.params.id, req.body.reason),
   }));
 
   app.post('/api/write-offs/:id/reverse', { ...manage, schema: { params: idParamSchema, body: reverseWriteOffSchema } }, async (req) => ({

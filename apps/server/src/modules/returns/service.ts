@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
-import { createSalesReturnSchema, returnListQuerySchema, type PurchaseReturnRow, type SalesReturn } from '@shopledger/shared';
+import { createSalesReturnSchema, returnListQuerySchema, updateSalesReturnSchema, type PurchaseReturnRow, type Sale, type SalesReturn } from '@shopledger/shared';
 import type { z } from 'zod';
 import { writeTx, type DB, type DbOrTx } from '../../db/client';
 import {
@@ -16,21 +16,24 @@ import {
   suppliers,
   users,
 } from '../../db/schema';
-import { recalcAllocations } from '../../lib/allocation';
+import { recalcAllocations, removeAllocationsFromSource } from '../../lib/allocation';
 import { writeAudit } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
+import { assertCanEdit, assertCanVoid, changeFlags, diffSnapshots, diffSummary, totalFlags, uniqueFlags } from '../../lib/documents';
 import { badRequest, notFound } from '../../lib/errors';
-import { postEntry } from '../../lib/ledger';
+import { postEntry, removeEntriesForSource } from '../../lib/ledger';
 import { formatPaisa } from '../../lib/money';
 import { nextDocNo } from '../../lib/numbering';
 import type { SessionUser } from '../../lib/permissions';
 import { returnedNetForLine } from '../../lib/profit';
-import { postMovement, recomputeAverageCosts } from '../../lib/stock';
+import { postMovement, recomputeAverageCosts, removeMovementsForSource } from '../../lib/stock';
 import { auditActor } from '../auth/service';
+import { voidPaymentTx } from '../payments/service';
 import { getSale } from '../sales/service';
 
 type CreateInput = z.output<typeof createSalesReturnSchema>;
 type ListQuery = z.output<typeof returnListQuerySchema>;
+type UpdateInput = z.output<typeof updateSalesReturnSchema>;
 
 // --- Reading ---------------------------------------------------------------------
 
@@ -80,7 +83,9 @@ function toReturn(h: HeaderRow): SalesReturn {
     profit_reversed_paisa: h.profit_reversed,
     refunded_paisa: h.refunded,
     status: h.r.status,
+    version: h.r.version,
     created_at: h.r.created_at,
+    created_by_id: h.r.created_by,
     created_by_name: h.created_by_name,
     total_qty: h.total_qty,
   };
@@ -189,18 +194,118 @@ export function listPurchaseReturns(db: DB, q: ListQuery): { returns: PurchaseRe
   };
 }
 
+// --- Snapshots ---------------------------------------------------------------------
+
+/** A sales return as stored, with line names. Used for before/after in the audit log. */
+export function salesReturnSnapshot(db: DbOrTx, id: number) {
+  const r = db.select().from(sales_returns).where(eq(sales_returns.id, id)).get();
+  if (!r) throw notFound('Sales return not found.');
+  const s = db.select({ doc_no: sales.doc_no }).from(sales).where(eq(sales.id, r.sale_id)).get();
+  const c = db.select({ name: customers.name }).from(customers).where(eq(customers.id, r.customer_id)).get();
+  const lines = db
+    .select({ i: sales_return_items, v: product_variants, p: products })
+    .from(sales_return_items)
+    .innerJoin(product_variants, eq(product_variants.id, sales_return_items.variant_id))
+    .innerJoin(products, eq(products.id, product_variants.product_id))
+    .where(eq(sales_return_items.return_id, id))
+    .orderBy(asc(sales_return_items.id))
+    .all()
+    .map(({ i, v, p }) => {
+      const { return_id: _r, ...item } = i;
+      return { ...item, item_code: p.item_code, name: p.name, color: v.color, size: v.size };
+    });
+  return { ...r, sale_doc_no: s?.doc_no ?? null, customer_name: c?.name ?? null, lines };
+}
+
+const lineKey = (l: Record<string, unknown>) => String(l.sale_item_id);
+const lineLabel = (l: Record<string, unknown>) => [l.item_code, l.color, l.size].filter(Boolean).join(' ');
+
+// --- Posting pieces ------------------------------------------------------------------
+
+/**
+ * Works out the lines of a sales return (CLAUDE.md 8.7): at most the
+ * quantity sold minus what other posted returns took. The customer is
+ * credited what they actually paid (returned qty × line net ÷ qty; the last
+ * return of a line takes exactly what is left), and the profit on those goods
+ * is reversed.
+ */
+function buildReturnItems(tx: DbOrTx, sale: Sale, wantedLines: CreateInput['lines']) {
+  const byId = new Map((sale.lines ?? []).map((l) => [l.id, l]));
+  const wanted = new Map<number, number>();
+  for (const l of wantedLines) wanted.set(l.sale_item_id, (wanted.get(l.sale_item_id) ?? 0) + l.qty);
+
+  // Net already credited per line, so the last return takes exactly what is left.
+  const creditedNet = new Map(
+    tx
+      .select({ id: sales_return_items.sale_item_id, n: sql<number>`sum(${sales_return_items.line_net_paisa})` })
+      .from(sales_return_items)
+      .innerJoin(sales_returns, eq(sales_returns.id, sales_return_items.return_id))
+      .where(and(eq(sales_returns.sale_id, sale.id), eq(sales_returns.status, 'posted')))
+      .groupBy(sales_return_items.sale_item_id)
+      .all()
+      .map((r) => [r.id, r.n]),
+  );
+  return [...wanted.entries()].map(([itemId, qty]) => {
+    const line = byId.get(itemId);
+    if (!line) throw badRequest('One of the items is not on this invoice.');
+    const left = line.qty - line.returned_qty;
+    const label = [line.item_code, line.color, line.size].filter(Boolean).join(' ');
+    if (qty > left) throw badRequest(`${label}: only ${left} can still be returned (sold ${line.qty}, already returned ${line.returned_qty}).`);
+    const unitCost = tx.select({ c: sale_items.unit_cost_paisa }).from(sale_items).where(eq(sale_items.id, itemId)).get()?.c ?? 0;
+    const net = returnedNetForLine({ line_net_paisa: line.line_net_paisa, qty: line.qty }, qty, left, creditedNet.get(itemId) ?? 0);
+    const cost = qty * unitCost;
+    return { line, qty, unit_cost_paisa: unitCost, line_net_paisa: net, line_cost_paisa: cost, profit_reversed_paisa: net - cost };
+  });
+}
+
+type ReturnItem = ReturnType<typeof buildReturnItems>[number];
+
+/** Lines, stock back in at the original cost, and the customer credit. */
+function postReturnLines(tx: DbOrTx, header: { id: number; doc_no: string; date: string; customer_id: number; total_paisa: number }, saleDocNo: string, items: readonly ReturnItem[]): void {
+  for (const i of items) {
+    tx.insert(sales_return_items)
+      .values({
+        return_id: header.id,
+        sale_item_id: i.line.id,
+        variant_id: i.line.variant_id,
+        qty: i.qty,
+        unit_cost_paisa: i.unit_cost_paisa,
+        line_net_paisa: i.line_net_paisa,
+        line_cost_paisa: i.line_cost_paisa,
+        profit_reversed_paisa: i.profit_reversed_paisa,
+      })
+      .run();
+    postMovement(tx, { variant_id: i.line.variant_id, date: header.date, qty_change: i.qty, unit_cost_paisa: i.unit_cost_paisa, source_type: 'sales_return', source_id: header.id });
+  }
+  if (header.total_paisa > 0) {
+    postEntry(tx, {
+      party_type: 'customer',
+      party_id: header.customer_id,
+      date: header.date,
+      credit_paisa: header.total_paisa,
+      entry_type: 'sales_return',
+      source_type: 'sales_return',
+      source_id: header.id,
+      narration: `Return ${header.doc_no} against ${saleDocNo}`,
+    });
+  }
+}
+
+function postedRefundsOf(tx: DbOrTx, returnId: number) {
+  return tx
+    .select()
+    .from(payments)
+    .where(and(eq(payments.sales_return_id, returnId), eq(payments.kind, 'refund'), eq(payments.status, 'posted')))
+    .all();
+}
+
 // --- Posting a sales return --------------------------------------------------------
 
 /**
- * Goods back from a customer (CLAUDE.md 8.7), in one transaction:
- *  - at most the quantity sold minus what was already returned;
- *  - stock back in at the line's original unit cost;
- *  - the customer is credited what they actually paid for those goods
- *    (returned qty × line net ÷ qty; the last return of a line takes exactly
- *    what is left, so the credits add up to the line net);
- *  - profit reversed = returned net − returned cost, stored on each line;
- *  - the credit goes to the original invoice first, then FIFO;
- *  - optionally cash is paid back now (a refund, at most the credit).
+ * Goods back from a customer (CLAUDE.md 8.7), in one transaction: lines,
+ * stock back in, customer credit (to the original invoice first, then FIFO),
+ * profit reversal, one audit row; and optionally cash paid back now (a
+ * refund, at most the credit, with its own audit row).
  */
 export function createSalesReturn(db: DB, user: SessionUser, saleId: number, input: CreateInput): SalesReturn {
   if (input.date > businessToday()) throw badRequest('The return date cannot be in the future.');
@@ -209,32 +314,7 @@ export function createSalesReturn(db: DB, user: SessionUser, saleId: number, inp
     const sale = getSale(tx, saleId);
     if (sale.status !== 'posted') throw badRequest('This invoice is void.');
     if (input.date < sale.date) throw badRequest('The return cannot be dated before the invoice.');
-    const byId = new Map((sale.lines ?? []).map((l) => [l.id, l]));
-    const wanted = new Map<number, number>();
-    for (const l of input.lines) wanted.set(l.sale_item_id, (wanted.get(l.sale_item_id) ?? 0) + l.qty);
-
-    // Net already credited per line, so the last return takes exactly what is left.
-    const creditedNet = new Map(
-      tx
-        .select({ id: sales_return_items.sale_item_id, n: sql<number>`sum(${sales_return_items.line_net_paisa})` })
-        .from(sales_return_items)
-        .innerJoin(sales_returns, eq(sales_returns.id, sales_return_items.return_id))
-        .where(and(eq(sales_returns.sale_id, saleId), eq(sales_returns.status, 'posted')))
-        .groupBy(sales_return_items.sale_item_id)
-        .all()
-        .map((r) => [r.id, r.n]),
-    );
-    const items = [...wanted.entries()].map(([itemId, qty]) => {
-      const line = byId.get(itemId);
-      if (!line) throw badRequest('One of the items is not on this invoice.');
-      const left = line.qty - line.returned_qty;
-      const label = [line.item_code, line.color, line.size].filter(Boolean).join(' ');
-      if (qty > left) throw badRequest(`${label}: only ${left} can still be returned (sold ${line.qty}, already returned ${line.returned_qty}).`);
-      const unitCost = tx.select({ c: sale_items.unit_cost_paisa }).from(sale_items).where(eq(sale_items.id, itemId)).get()?.c ?? 0;
-      const net = returnedNetForLine({ line_net_paisa: line.line_net_paisa, qty: line.qty }, qty, left, creditedNet.get(itemId) ?? 0);
-      const cost = qty * unitCost;
-      return { line, qty, unit_cost_paisa: unitCost, line_net_paisa: net, line_cost_paisa: cost, profit_reversed_paisa: net - cost };
-    });
+    const items = buildReturnItems(tx, sale, input.lines);
     const total = items.reduce((a, i) => a + i.line_net_paisa, 0);
     if (input.refund && input.refund.amount_paisa > total) {
       throw badRequest(`The refund cannot be more than the credit for these goods (${formatPaisa(total)}).`);
@@ -259,45 +339,11 @@ export function createSalesReturn(db: DB, user: SessionUser, saleId: number, inp
       })
       .returning()
       .get();
-
-    for (const i of items) {
-      tx.insert(sales_return_items)
-        .values({
-          return_id: header.id,
-          sale_item_id: i.line.id,
-          variant_id: i.line.variant_id,
-          qty: i.qty,
-          unit_cost_paisa: i.unit_cost_paisa,
-          line_net_paisa: i.line_net_paisa,
-          line_cost_paisa: i.line_cost_paisa,
-          profit_reversed_paisa: i.profit_reversed_paisa,
-        })
-        .run();
-      postMovement(tx, {
-        variant_id: i.line.variant_id,
-        date: input.date,
-        qty_change: i.qty,
-        unit_cost_paisa: i.unit_cost_paisa,
-        source_type: 'sales_return',
-        source_id: header.id,
-      });
-    }
+    postReturnLines(tx, header, sale.doc_no, items);
     recomputeAverageCosts(
       tx,
       items.map((i) => i.line.variant_id),
     );
-    if (total > 0) {
-      postEntry(tx, {
-        party_type: 'customer',
-        party_id: sale.customer_id,
-        date: input.date,
-        credit_paisa: total,
-        entry_type: 'sales_return',
-        source_type: 'sales_return',
-        source_id: header.id,
-        narration: `Return ${header.doc_no} against ${sale.doc_no}`,
-      });
-    }
 
     writeAudit(tx, auditActor(user), {
       action: 'create',
@@ -305,21 +351,7 @@ export function createSalesReturn(db: DB, user: SessionUser, saleId: number, inp
       entity_id: header.id,
       doc_no: header.doc_no,
       version_after: 1,
-      after: {
-        ...header,
-        sale_doc_no: sale.doc_no,
-        lines: items.map((i) => ({
-          sale_item_id: i.line.id,
-          variant_id: i.line.variant_id,
-          item_code: i.line.item_code,
-          color: i.line.color,
-          size: i.line.size,
-          qty: i.qty,
-          line_net_paisa: i.line_net_paisa,
-          line_cost_paisa: i.line_cost_paisa,
-          profit_reversed_paisa: i.profit_reversed_paisa,
-        })),
-      },
+      after: salesReturnSnapshot(tx, header.id),
       summary: {
         sale_doc_no: sale.doc_no,
         customer_id: sale.customer_id,
@@ -378,5 +410,97 @@ export function createSalesReturn(db: DB, user: SessionUser, saleId: number, inp
 
     recalcAllocations(tx, sale.customer_id);
     return getSalesReturn(tx, header.id);
+  });
+}
+
+/**
+ * Edits a sales return: its date, reason and quantities, re-checked like a
+ * new return. Money already paid back for it must still fit the new credit
+ * (edit the refund first otherwise).
+ */
+export function updateSalesReturn(db: DB, user: SessionUser, id: number, input: UpdateInput): SalesReturn {
+  if (input.date > businessToday()) throw badRequest('The return date cannot be in the future.');
+  return writeTx(db, (tx) => {
+    const before = tx.select().from(sales_returns).where(eq(sales_returns.id, id)).get();
+    if (!before) throw notFound('Sales return not found.');
+    assertCanEdit(user, before, 'returns.create');
+    const beforeSnap = salesReturnSnapshot(tx, id);
+
+    // Take this return off first, so the invoice shows what is left to return without it.
+    removeEntriesForSource(tx, 'sales_return', id);
+    const variantsBefore = removeMovementsForSource(tx, 'sales_return', id);
+    tx.delete(sales_return_items).where(eq(sales_return_items.return_id, id)).run();
+
+    const sale = getSale(tx, before.sale_id);
+    if (sale.status !== 'posted') throw badRequest('The invoice is void.');
+    if (input.date < sale.date) throw badRequest('The return cannot be dated before the invoice.');
+    const items = buildReturnItems(tx, sale, input.lines);
+    const total = items.reduce((a, i) => a + i.line_net_paisa, 0);
+    const refunded = postedRefundsOf(tx, id);
+    const refundedTotal = refunded.reduce((a, r) => a + r.amount_paisa, 0);
+    if (refundedTotal > total) {
+      throw badRequest(`${formatPaisa(refundedTotal)} was paid back for this return (${refunded.map((r) => r.doc_no).join(', ')}), more than the new credit of ${formatPaisa(total)}. Edit the refund first.`);
+    }
+
+    const after = tx
+      .update(sales_returns)
+      .set({ date: input.date, reason: input.reason, total_paisa: total, version: before.version + 1, updated_by: user.id, updated_at: nowIso() })
+      .where(eq(sales_returns.id, id))
+      .returning()
+      .get();
+    postReturnLines(tx, after, sale.doc_no, items);
+    recomputeAverageCosts(tx, [...variantsBefore, ...items.map((i) => i.line.variant_id)]);
+    recalcAllocations(tx, before.customer_id);
+
+    const afterSnap = salesReturnSnapshot(tx, id);
+    const diff = diffSnapshots(beforeSnap, afterSnap, lineKey, lineLabel);
+    writeAudit(tx, auditActor(user), {
+      action: 'edit',
+      entity: 'sales_return',
+      entity_id: id,
+      doc_no: before.doc_no,
+      version_before: before.version,
+      version_after: after.version,
+      before: beforeSnap,
+      after: afterSnap,
+      summary: { ...diffSummary(diff), sale_doc_no: sale.doc_no, customer_id: before.customer_id, customer_name: sale.customer_name, total_before_paisa: before.total_paisa, total_after_paisa: total },
+      flags: uniqueFlags(changeFlags(tx, user, 'sales_return', id, before.created_at), totalFlags(before.total_paisa, total)),
+      reason: input.change_reason,
+    });
+    return getSalesReturn(tx, id);
+  });
+}
+
+/**
+ * Owner+: voids a sales return. The goods leave stock again and the credit
+ * is taken off; money paid back for it is voided in the same step.
+ */
+export function voidSalesReturn(db: DB, user: SessionUser, id: number, reason: string): SalesReturn {
+  return writeTx(db, (tx) => {
+    const before = tx.select().from(sales_returns).where(eq(sales_returns.id, id)).get();
+    if (!before) throw notFound('Sales return not found.');
+    assertCanVoid(user, before);
+    const beforeSnap = salesReturnSnapshot(tx, id);
+    for (const r of postedRefundsOf(tx, id)) voidPaymentTx(tx, user, r.id, `Voided with return ${before.doc_no}: ${reason}`);
+    removeEntriesForSource(tx, 'sales_return', id);
+    const variants = removeMovementsForSource(tx, 'sales_return', id);
+    removeAllocationsFromSource(tx, 'sales_return', id);
+    tx.update(sales_returns).set({ status: 'void', version: before.version + 1, updated_by: user.id, updated_at: nowIso() }).where(eq(sales_returns.id, id)).run();
+    recomputeAverageCosts(tx, variants);
+    recalcAllocations(tx, before.customer_id);
+    writeAudit(tx, auditActor(user), {
+      action: 'void',
+      entity: 'sales_return',
+      entity_id: id,
+      doc_no: before.doc_no,
+      version_before: before.version,
+      version_after: before.version + 1,
+      before: beforeSnap,
+      after: salesReturnSnapshot(tx, id),
+      summary: { sale_doc_no: beforeSnap.sale_doc_no, customer_id: before.customer_id, customer_name: beforeSnap.customer_name, total_before_paisa: before.total_paisa, total_after_paisa: 0 },
+      flags: uniqueFlags(changeFlags(tx, user, 'sales_return', id, before.created_at), ['voided']),
+      reason,
+    });
+    return getSalesReturn(tx, id);
   });
 }

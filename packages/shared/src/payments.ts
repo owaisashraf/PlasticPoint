@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { businessDateSchema, listQuerySchema, optionalText, reasonSchema } from './common';
+import { businessDateSchema, changeReasonSchema, listQuerySchema, optionalText, reasonSchema } from './common';
 
 export const PAYMENT_METHODS = ['cash', 'bank', 'cheque', 'online'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -107,6 +107,7 @@ export const paymentSchema = z.object({
   notes: z.string().nullable(),
   version: z.number().int(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   /** Receipts: how much is linked to invoices; the rest is an advance. */
   allocated_paisa: z.number().int(),
@@ -139,6 +140,9 @@ export const createWriteOffSchema = z.object({ date: businessDateSchema, amount_
 export type CreateWriteOffInput = z.input<typeof createWriteOffSchema>;
 
 export const reverseWriteOffSchema = createWriteOffSchema;
+
+export const updateWriteOffSchema = createWriteOffSchema.extend({ change_reason: changeReasonSchema }).strict();
+export type UpdateWriteOffInput = z.input<typeof updateWriteOffSchema>;
 export type ReverseWriteOffInput = z.input<typeof reverseWriteOffSchema>;
 
 export const writeOffSchema = z.object({
@@ -150,8 +154,37 @@ export const writeOffSchema = z.object({
   reversed_paisa: z.number().int(),
   reason: z.string(),
   status: z.enum(['posted', 'void']),
+  version: z.number().int(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   reversals: z.array(z.object({ id: z.number().int(), date: z.string(), amount_paisa: z.number().int(), reason: z.string(), created_at: z.string() })),
 });
 export type WriteOff = z.infer<typeof writeOffSchema>;
+
+/** Editing a receipt. The customer cannot change: void it and record it again instead. */
+export const updateReceiptSchema = z
+  .object({
+    ...moneyFields,
+    allocations: z.array(manualAllocationSchema).max(500).default([]),
+    change_reason: changeReasonSchema,
+  })
+  .strict()
+  .superRefine(chequeNeedsNumber);
+export type UpdateReceiptInput = z.input<typeof updateReceiptSchema>;
+
+export const updateSupplierPaymentSchema = z
+  .object({ ...moneyFields, change_reason: changeReasonSchema })
+  .strict()
+  .superRefine(chequeNeedsNumber);
+export type UpdateSupplierPaymentInput = z.input<typeof updateSupplierPaymentSchema>;
+
+export const updateRefundSchema = z
+  .object({
+    date: businessDateSchema,
+    amount_paisa: amountSchema,
+    method: z.enum(['cash', 'bank', 'online']),
+    change_reason: changeReasonSchema,
+  })
+  .strict();
+export type UpdateRefundInput = z.input<typeof updateRefundSchema>;

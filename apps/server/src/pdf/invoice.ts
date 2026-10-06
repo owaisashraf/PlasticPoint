@@ -45,7 +45,7 @@ function customerLines(s: Sale): string[] {
   return [s.customer_business_name, s.customer_address, s.customer_city, s.customer_phone && `Phone: ${formatPhone(s.customer_phone)}`, `Customer code: ${s.customer_code}`].filter(Boolean) as string[];
 }
 
-function a4Definition(s: Sale, b: InvoiceBalances, settings: Settings): TDocumentDefinitions {
+function a4Definition(s: Sale, b: InvoiceBalances, settings: Settings, note?: string): TDocumentDefinitions {
   const lines = s.lines ?? [];
   const head: TableCell[] = ['#', 'Item', 'Description', 'Color', 'Size', 'Qty', 'Price', 'Disc %', 'Amount'].map((t, i) => ({
     text: t,
@@ -74,7 +74,7 @@ function a4Definition(s: Sale, b: InvoiceBalances, settings: Settings): TDocumen
     defaultStyle: { font: 'Roboto', fontSize: 10 },
     styles: baseStyles,
     watermark: voidWatermark(s.status === 'void'),
-    footer: documentFooter('Thank you for your business.'),
+    footer: documentFooter(note ?? 'Thank you for your business.'),
     content: [
       documentHeader(settings, 'INVOICE', s.doc_no, [
         ['Date', formatBusinessDate(s.date)],
@@ -111,7 +111,7 @@ function a4Definition(s: Sale, b: InvoiceBalances, settings: Settings): TDocumen
 }
 
 /** 80 mm thermal roll: one column, page as long as the content. */
-function thermalDefinition(s: Sale, b: InvoiceBalances, settings: Settings): TDocumentDefinitions {
+function thermalDefinition(s: Sale, b: InvoiceBalances, settings: Settings, note?: string): TDocumentDefinitions {
   const lines = s.lines ?? [];
   const details = [settings.business_address, settings.business_phone && `Phone: ${settings.business_phone}`, settings.business_ntn && `NTN: ${settings.business_ntn}`].filter(Boolean) as string[];
   const rule: Content = { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 207, y2: 0, lineWidth: 0.5, dash: { length: 2 } }], margin: [0, 4, 0, 4] };
@@ -140,15 +140,21 @@ function thermalDefinition(s: Sale, b: InvoiceBalances, settings: Settings): TDo
       ...totalsRows(s, b).map((r) => ({ ...(pair(r.label, r.value, r.strong) as object), margin: [0, r.gap ? 4 : 0, 0, 0] }) as Content),
       { text: amountInWords(s.total_paisa), italics: true, margin: [0, 4, 0, 0] },
       ...(s.notes ? [{ text: `Notes: ${s.notes}`, margin: [0, 4, 0, 0] } as Content] : []),
-      { text: 'Thank you for your business.', alignment: 'center', margin: [0, 6, 0, 0] },
+      { text: note ?? 'Thank you for your business.', alignment: 'center', margin: [0, 6, 0, 0] },
     ],
   };
 }
 
-export function invoiceDocDefinition(sale: Sale, balances: InvoiceBalances, settings: Settings, size: PaperSize): TDocumentDefinitions {
+/** `note` replaces the footer text (e.g. "Re-created from version 2"). */
+export function invoiceDocDefinition(sale: Sale, balances: InvoiceBalances, settings: Settings, size: PaperSize, note?: string): TDocumentDefinitions {
   // No user: removes supplier margin, cost and profit from the sale and its lines.
   const s = redact(sale, null);
-  return size === '80mm' ? thermalDefinition(s, balances, settings) : a4Definition(s, balances, settings);
+  return size === '80mm' ? thermalDefinition(s, balances, settings, note) : a4Definition(s, balances, settings, note);
+}
+
+/** Renders an invoice without saving it (used for old versions from the change history). */
+export function renderInvoicePdf(sale: Sale, balances: InvoiceBalances, settings: Settings, size: PaperSize, note?: string): Promise<Buffer> {
+  return renderPdf(invoiceDocDefinition(sale, balances, settings, size, note));
 }
 
 /** DATA_DIR/invoices/YYYY/MM/<doc_no>-v<version>.pdf (80 mm copies end in -80mm). Written if missing or forced. */

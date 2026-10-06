@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
+import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
 import { cn, todayKarachi } from '@/lib/utils';
@@ -37,24 +38,43 @@ function fifoPreview(items: OpenItem[], amount: number): Map<string, number> {
  * invoices by hand. The preview shows how the money will be applied; any
  * amount left over is kept as an advance.
  */
-export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSaved }: { customer?: Customer; saleId?: number; onClose: () => void; onSaved?: (p: Payment) => void }) {
+export function ReceivePaymentDialog({
+  customer: initial,
+  saleId,
+  payment,
+  onClose,
+  onSaved,
+}: {
+  customer?: Customer;
+  saleId?: number;
+  /** Edit this receipt instead of recording a new one (its customer cannot change). */
+  payment?: Payment;
+  onClose: () => void;
+  onSaved?: (p: Payment) => void;
+}) {
   const refresh = useRefreshAfterMoney();
   const [customer, setCustomer] = useState<Customer | null>(initial ?? null);
   const [picking, setPicking] = useState(!initial);
   // The picker reports the pick and its closing in the same tick, so `customer` is not updated yet there.
   const picked = useRef(!!initial);
-  const [date, setDate] = useState(todayKarachi());
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('cash');
-  const [reference, setReference] = useState('');
-  const [chequeNo, setChequeNo] = useState('');
-  const [chequeBank, setChequeBank] = useState('');
-  const [chequeDate, setChequeDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [mode, setMode] = useState<'fifo' | 'manual'>(saleId ? 'manual' : 'fifo');
-  const [manual, setManual] = useState<Record<string, string>>({});
+  const [date, setDate] = useState(payment?.date ?? todayKarachi());
+  const [amount, setAmount] = useState(payment ? paisaToInput(payment.amount_paisa) : '');
+  const [method, setMethod] = useState<PaymentMethod>(payment?.method ?? 'cash');
+  const [reference, setReference] = useState(payment?.reference ?? '');
+  const [chequeNo, setChequeNo] = useState(payment?.cheque_no ?? '');
+  const [chequeBank, setChequeBank] = useState(payment?.cheque_bank ?? '');
+  const [chequeDate, setChequeDate] = useState(payment?.cheque_date ?? '');
+  const [notes, setNotes] = useState(payment?.notes ?? '');
+  const pickedBefore = (payment?.allocations ?? []).filter((a) => a.is_manual);
+  const [mode, setMode] = useState<'fifo' | 'manual'>(saleId || pickedBefore.length ? 'manual' : 'fifo');
+  const [manual, setManual] = useState<Record<string, string>>(
+    Object.fromEntries(pickedBefore.map((a) => [a.sale_id === null ? 'opening' : String(a.sale_id), paisaToInput(a.amount_paisa)])),
+  );
+  const [changeReason, setChangeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const open = useOpenItems(customer?.id ?? null);
+  /** Cash taken with a sale stays linked to that sale. */
+  const counterCash = payment?.sale_id ?? null;
+  const open = useOpenItems(customer?.id ?? null, payment?.id);
   const items = open.data?.items ?? [];
 
   const amountPaisa = amount.trim() ? parseRupeesToPaisa(amount) : null;
@@ -64,7 +84,13 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
   const applied = mode === 'fifo' ? fifoPreview(items, amountPaisa ?? 0) : new Map(Object.entries(manualPaisa).map(([k, v]) => [k, v ?? 0]));
   const appliedTotal = [...applied.values()].reduce((a, b) => a + b, 0);
   const advance = (amountPaisa ?? 0) - appliedTotal;
-  const valid = customer !== null && amountPaisa !== null && amountPaisa > 0 && (method !== 'cheque' || chequeNo.trim() !== '') && (mode === 'fifo' || (!manualBad && manualTotal <= amountPaisa));
+  const valid =
+    customer !== null &&
+    amountPaisa !== null &&
+    amountPaisa > 0 &&
+    (method !== 'cheque' || chequeNo.trim() !== '') &&
+    (counterCash !== null || mode === 'fifo' || (!manualBad && manualTotal <= amountPaisa)) &&
+    (!payment || changeReasonOk(changeReason));
 
   // Paying one invoice from its page: prefill it once the open items arrive.
   const [prefilled, setPrefilled] = useState(false);
@@ -78,9 +104,8 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
   }
 
   const save = useMutation({
-    mutationFn: () =>
-      api.post<{ payment: Payment }>('/api/payments/receipts', {
-        customer_id: customer?.id,
+    mutationFn: () => {
+      const body = {
         date,
         amount_paisa: amountPaisa,
         method,
@@ -88,14 +113,18 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
         notes,
         ...(method === 'cheque' ? { cheque_no: chequeNo, cheque_bank: chequeBank, cheque_date: chequeDate || null } : {}),
         allocations:
-          mode === 'manual'
+          mode === 'manual' && counterCash === null
             ? items.filter((i) => (manualPaisa[itemKey(i)] ?? 0) > 0).map((i) => ({ sale_id: i.sale_id, amount_paisa: manualPaisa[itemKey(i)] }))
             : [],
-      }),
-    onSuccess: ({ payment }) => {
+      };
+      return payment
+        ? api.put<{ payment: Payment }>(`/api/payments/receipts/${payment.id}`, { ...body, change_reason: changeReason })
+        : api.post<{ payment: Payment }>('/api/payments/receipts', { ...body, customer_id: customer?.id });
+    },
+    onSuccess: ({ payment: saved }) => {
       refresh();
-      toast.success(`Receipt ${payment.doc_no} saved.`);
-      onSaved?.(payment);
+      toast.success(payment ? `Receipt ${saved.doc_no} updated.` : `Receipt ${saved.doc_no} saved.`);
+      onSaved?.(saved);
       onClose();
     },
     onError: (e) => setError(e instanceof ApiError && e.fields ? Object.values(e.fields)[0] ?? errorMessage(e) : errorMessage(e)),
@@ -112,7 +141,7 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
       <Dialog open={!picking} onOpenChange={(o) => !o && onClose()}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Receive payment</DialogTitle>
+            <DialogTitle>{payment ? `Edit receipt ${payment.doc_no}` : 'Receive payment'}</DialogTitle>
             <DialogDescription>Money is applied to the oldest unpaid first, unless you pick invoices. Anything left over is kept as an advance.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr_1fr]">
@@ -120,8 +149,9 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
               <button
                 id="rp_customer"
                 type="button"
-                onClick={() => setPicking(true)}
-                className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border border-input bg-card px-3 text-left text-[15px] hover:bg-muted"
+                onClick={() => !payment && setPicking(true)}
+                disabled={!!payment}
+                className="flex h-9 w-full cursor-pointer disabled:cursor-default items-center gap-2 rounded-md border border-input bg-card px-3 text-left text-[15px] hover:bg-muted"
               >
                 <Search className="size-4 text-muted-foreground" />
                 {customer ? (
@@ -173,7 +203,10 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
             </div>
           </div>
 
-          {customer && (
+          {customer && counterCash !== null && (
+            <p className="text-sm text-muted-foreground">This cash was taken at the counter with an invoice and stays linked to it.</p>
+          )}
+          {customer && counterCash === null && (
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm">
@@ -253,6 +286,7 @@ export function ReceivePaymentDialog({ customer: initial, saleId, onClose, onSav
             </div>
           )}
 
+          {payment && <ChangeReasonField id="rp_change_reason" value={changeReason} onChange={setChangeReason} />}
           {error && <p className="font-medium text-destructive">{error}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={onClose}>

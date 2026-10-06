@@ -17,10 +17,11 @@ import { ProductsPage } from './routes/products/ProductsPage';
 import { NewPurchasePage } from './routes/purchases/NewPurchasePage';
 import { PurchaseDetailPage } from './routes/purchases/PurchaseDetailPage';
 import { PurchasesPage } from './routes/purchases/PurchasesPage';
+import { EditPurchasePage } from './routes/purchases/NewPurchasePage';
 import { OverduePage } from './routes/overdue/OverduePage';
 import { PaymentsPage } from './routes/payments/PaymentsPage';
 import { ReturnsPage } from './routes/returns/ReturnsPage';
-import { NewSalePage } from './routes/sales/NewSalePage';
+import { EditSalePage, NewSalePage } from './routes/sales/NewSalePage';
 import { SaleDetailPage } from './routes/sales/SaleDetailPage';
 import { SalesPage } from './routes/sales/SalesPage';
 import { SettingsPage } from './routes/settings/SettingsPage';
@@ -104,6 +105,22 @@ export function App() {
           element={
             <Guard permission="products.view">
               <ProductDetailPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/sales/:id/edit"
+          element={
+            <Guard permission="documents.edit_own_same_day">
+              <EditSalePage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/purchases/:id/edit"
+          element={
+            <Guard permission="documents.edit_own_same_day">
+              <EditPurchasePage />
             </Guard>
           }
         />

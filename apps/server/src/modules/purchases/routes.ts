@@ -1,5 +1,14 @@
 import { createReadStream } from 'node:fs';
-import { can, createPurchaseReturnSchema, createPurchaseSchema, idParamSchema, purchaseListQuerySchema } from '@shopledger/shared';
+import {
+  can,
+  createPurchaseReturnSchema,
+  createPurchaseSchema,
+  idParamSchema,
+  purchaseListQuerySchema,
+  updatePurchaseReturnSchema,
+  updatePurchaseSchema,
+  voidSchema,
+} from '@shopledger/shared';
 import type { AppInstance } from '../../app';
 import { writeTx } from '../../db/client';
 import { writeAudit } from '../../lib/audit';
@@ -9,7 +18,17 @@ import { ensurePurchasePdf } from '../../pdf/purchase';
 import { auditActor } from '../auth/service';
 import { getProduct } from '../products/service';
 import { getSettings } from '../settings/service';
-import { createPurchase, createPurchaseReturn, getPurchase, getPurchaseReturn, listPurchases } from './service';
+import {
+  createPurchase,
+  createPurchaseReturn,
+  getPurchase,
+  getPurchaseReturn,
+  listPurchases,
+  updatePurchase,
+  updatePurchaseReturn,
+  voidPurchase,
+  voidPurchaseReturn,
+} from './service';
 
 /**
  * Purchases show supplier margin and cost to anyone allowed to record them
@@ -50,6 +69,23 @@ export async function purchaseRoutes(app: AppInstance) {
 
   app.get('/api/purchase-returns/:id', { ...view, schema: { params: idParamSchema } }, async (req) =>
     purchaseRedact({ purchase_return: getPurchaseReturn(ctx.dbh.db, req.params.id) }, req.user),
+  );
+
+  // Editing and voiding (CLAUDE.md 8.6). The service checks own-same-day for operators.
+  const editOwn = requirePermission('documents.edit_own_same_day');
+  const voidAny = requirePermission('documents.edit_any');
+
+  app.put('/api/purchases/:id', { ...editOwn, schema: { params: idParamSchema, body: updatePurchaseSchema } }, async (req) =>
+    purchaseRedact({ purchase: updatePurchase(ctx.dbh.db, currentUser(req), req.params.id, req.body) }, req.user),
+  );
+  app.post('/api/purchases/:id/void', { ...voidAny, schema: { params: idParamSchema, body: voidSchema } }, async (req) =>
+    purchaseRedact({ purchase: voidPurchase(ctx.dbh.db, currentUser(req), req.params.id, req.body.reason) }, req.user),
+  );
+  app.put('/api/purchase-returns/:id', { ...editOwn, schema: { params: idParamSchema, body: updatePurchaseReturnSchema } }, async (req) =>
+    purchaseRedact({ purchase_return: updatePurchaseReturn(ctx.dbh.db, currentUser(req), req.params.id, req.body) }, req.user),
+  );
+  app.post('/api/purchase-returns/:id/void', { ...voidAny, schema: { params: idParamSchema, body: voidSchema } }, async (req) =>
+    purchaseRedact({ purchase_return: voidPurchaseReturn(ctx.dbh.db, currentUser(req), req.params.id, req.body.reason) }, req.user),
   );
 
   // Printing: the client calls /print (logged in the audit log, PDF refreshed),

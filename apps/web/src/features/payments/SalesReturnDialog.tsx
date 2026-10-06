@@ -7,6 +7,7 @@ import { MoneyInput } from '@/components/inputs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
+import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { api, errorMessage } from '@/lib/api';
 import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
@@ -16,12 +17,15 @@ import { useRefreshAfterMoney } from './api';
  * customer is credited what they actually paid (after discounts). The credit
  * reduces this invoice first; cash can also be paid back now.
  */
-export function SalesReturnDialog({ sale, onClose }: { sale: Sale; onClose: () => void }) {
+export function SalesReturnDialog({ sale, existing, onClose }: { sale: Sale; /** Edit this return instead of making a new one. */ existing?: SalesReturn; onClose: () => void }) {
   const refresh = useRefreshAfterMoney();
-  const lines = (sale.lines ?? []).filter((l) => l.qty > l.returned_qty);
-  const [qty, setQty] = useState<Record<number, string>>({});
-  const [date, setDate] = useState(todayKarachi());
-  const [reason, setReason] = useState('');
+  // When editing, this return's own quantities can be given back again.
+  const own = new Map((existing?.lines ?? []).map((l) => [l.sale_item_id, l.qty]));
+  const lines = (sale.lines ?? []).map((l) => ({ ...l, returned_qty: l.returned_qty - (own.get(l.id) ?? 0) })).filter((l) => l.qty > l.returned_qty);
+  const [qty, setQty] = useState<Record<number, string>>(Object.fromEntries([...own].map(([id, q]) => [id, String(q)])));
+  const [date, setDate] = useState(existing?.date ?? todayKarachi());
+  const [reason, setReason] = useState(existing?.reason ?? '');
+  const [changeReason, setChangeReason] = useState('');
   const [refundOn, setRefundOn] = useState(false);
   const [refund, setRefund] = useState('');
   const [method, setMethod] = useState<'cash' | 'bank' | 'online'>('cash');
@@ -33,16 +37,20 @@ export function SalesReturnDialog({ sale, onClose }: { sale: Sale; onClose: () =
   const credit = picked.reduce((a, x) => a + roundDiv(x.l.line_net_paisa * x.n, x.l.qty), 0);
   const refundPaisa = refundOn && refund.trim() ? parseRupeesToPaisa(refund) : 0;
   const refundBad = refundOn && (refundPaisa === null || refundPaisa <= 0 || refundPaisa > credit);
-  const valid = picked.length > 0 && !tooMany && reason.trim().length >= 3 && !refundBad;
+  const valid = picked.length > 0 && !tooMany && reason.trim().length >= 3 && !refundBad && (!existing || changeReasonOk(changeReason));
 
   const save = useMutation({
-    mutationFn: () =>
-      api.post<{ sales_return: SalesReturn }>(`/api/sales/${sale.id}/returns`, {
-        date,
-        reason,
-        lines: picked.map((x) => ({ sale_item_id: x.l.id, qty: x.n })),
-        ...(refundOn && refundPaisa ? { refund: { amount_paisa: refundPaisa, method } } : {}),
-      }),
+    mutationFn: () => {
+      const lines = picked.map((x) => ({ sale_item_id: x.l.id, qty: x.n }));
+      return existing
+        ? api.put<{ sales_return: SalesReturn }>(`/api/sales-returns/${existing.id}`, { date, reason, lines, change_reason: changeReason })
+        : api.post<{ sales_return: SalesReturn }>(`/api/sales/${sale.id}/returns`, {
+            date,
+            reason,
+            lines,
+            ...(refundOn && refundPaisa ? { refund: { amount_paisa: refundPaisa, method } } : {}),
+          });
+    },
     onSuccess: ({ sales_return: r }) => {
       refresh();
       toast.success(`Return ${r.doc_no} saved: ${formatPaisa(r.total_paisa)} credited${r.refunded_paisa ? `, ${formatPaisa(r.refunded_paisa)} paid back` : ''}.`);
@@ -55,7 +63,7 @@ export function SalesReturnDialog({ sale, onClose }: { sale: Sale; onClose: () =
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Return items from {sale.doc_no}</DialogTitle>
+          <DialogTitle>{existing ? `Edit return ${existing.doc_no}` : `Return items from ${sale.doc_no}`}</DialogTitle>
           <DialogDescription>
             {sale.customer_name} is credited what they paid for these items. The credit reduces this invoice first; anything extra stays as an advance unless you pay it back now.
           </DialogDescription>
@@ -110,7 +118,8 @@ export function SalesReturnDialog({ sale, onClose }: { sale: Sale; onClose: () =
             </FormField>
           </div>
         </div>
-        <div className="rounded-md border border-border p-3">
+        {existing && <ChangeReasonField id="sr_change_reason" value={changeReason} onChange={setChangeReason} />}
+        <div className={existing ? 'hidden' : 'rounded-md border border-border p-3'}>
           <label className="flex items-center gap-2 font-medium">
             <input
               type="checkbox"

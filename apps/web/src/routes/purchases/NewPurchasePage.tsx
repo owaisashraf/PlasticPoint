@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   applyBp,
   bpToPercentString,
@@ -11,7 +11,7 @@ import {
 } from '@shopledger/shared';
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { ItemEntry } from '@/components/document/ItemEntry';
 import type { GridPick } from '@/components/document/SizeColorGrid';
@@ -22,6 +22,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { useCan } from '@/features/auth/useAuth';
+import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { PRODUCTS_KEY } from '@/features/products/api';
 import { loadPurchaseProduct, PURCHASES_KEY, useSuppliers } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
@@ -64,7 +65,13 @@ interface ProductChange {
   newMargin: number | null;
 }
 
-export function NewPurchasePage() {
+/** /purchases/:id/edit — the purchase screen in edit mode. */
+export function EditPurchasePage() {
+  const id = Number(useParams().id);
+  return <NewPurchasePage key={id} editId={id} />;
+}
+
+export function NewPurchasePage({ editId }: { editId?: number } = {}) {
   const can = useCan();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -76,6 +83,39 @@ export function NewPurchasePage() {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   const [changes, setChanges] = useState<ProductChange[] | null>(null);
+  const [changeReason, setChangeReason] = useState('');
+  // Edit mode (CLAUDE.md 8.6): load the purchase once and fill the form.
+  const editing = useQuery({
+    queryKey: [...PURCHASES_KEY, 'one', editId],
+    queryFn: () => api.get<{ purchase: Purchase }>(`/api/purchases/${editId}`).then((r) => r.purchase),
+    enabled: editId !== undefined,
+  });
+  const original = editing.data;
+  const [loaded, setLoaded] = useState(false);
+  if (editId !== undefined && !loaded && original) {
+    setLoaded(true);
+    setSupplierId(original.supplier_id);
+    setDate(original.date);
+    setRef(original.supplier_ref ?? '');
+    setNotes(original.notes ?? '');
+    setLines(
+      (original.lines ?? []).map((l) => ({
+        key: String(l.variant_id),
+        variant_id: l.variant_id,
+        product_id: l.product_id,
+        item_code: l.item_code,
+        name: l.name,
+        color: l.color,
+        size: l.size,
+        unit: l.unit,
+        qty: String(l.qty),
+        price: paisaToInput(l.list_price_paisa),
+        margin: bpToPercentString(l.supplier_margin_bp ?? 0),
+        product_price_paisa: l.list_price_paisa,
+        product_margin_bp: l.supplier_margin_bp ?? 0,
+      })),
+    );
+  }
   const effectiveSupplier = supplierId ?? (active.length === 1 ? (active[0]?.id ?? null) : null);
 
   const addPicks = (product: Product, picks: GridPick[]) => {
@@ -126,8 +166,8 @@ export function NewPurchasePage() {
   });
 
   const save = useMutation({
-    mutationFn: (update_products: { product_id: number; list_price_paisa?: number; supplier_margin_bp?: number }[]) =>
-      api.post<{ purchase: Purchase }>('/api/purchases', {
+    mutationFn: (update_products: { product_id: number; list_price_paisa?: number; supplier_margin_bp?: number }[]) => {
+      const body = {
         supplier_id: effectiveSupplier,
         date,
         supplier_ref: ref,
@@ -136,13 +176,16 @@ export function NewPurchasePage() {
           const a = amounts[i];
           return { variant_id: l.variant_id, qty: a?.qty, list_price_paisa: a?.price, supplier_margin_bp: a?.bp };
         }),
-        update_products,
-      }),
+      };
+      return editId === undefined
+        ? api.post<{ purchase: Purchase }>('/api/purchases', { ...body, update_products })
+        : api.put<{ purchase: Purchase }>(`/api/purchases/${editId}`, { ...body, change_reason: changeReason });
+    },
     onSuccess: ({ purchase }) => {
       void qc.invalidateQueries({ queryKey: PURCHASES_KEY });
       void qc.invalidateQueries({ queryKey: PRODUCTS_KEY });
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
-      toast.success(`Purchase ${purchase.doc_no} saved.`);
+      toast.success(editId === undefined ? `Purchase ${purchase.doc_no} saved.` : `Purchase ${purchase.doc_no} updated (version ${purchase.version}).`);
       navigate(`/purchases/${purchase.id}`);
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -151,8 +194,9 @@ export function NewPurchasePage() {
   const trySave = () => {
     if (!effectiveSupplier) return toast.error('Pick the supplier.');
     if (!valid) return toast.error('Check the highlighted lines: quantity, price and margin are needed.');
-    // Owner+: offer to update products whose bill price or margin differs.
-    if (can('pricing.manage')) {
+    if (editId !== undefined && !changeReasonOk(changeReason)) return toast.error('Enter the reason for the change.');
+    // Owner+: offer to update products whose bill price or margin differs (new purchases only).
+    if (can('pricing.manage') && editId === undefined) {
       const diff = new Map<number, ProductChange>();
       lines.forEach((l, i) => {
         const a = amounts[i];
@@ -198,7 +242,7 @@ export function NewPurchasePage() {
   return (
     <div className="max-w-6xl">
       <PageHeader
-        title="New purchase"
+        title={editId === undefined ? 'New purchase' : `Edit purchase ${original?.doc_no ?? ''}`}
         description="Copy the manufacturer's bill. Price and margin can be changed to match it."
         actions={
           <Button onClick={trySave} disabled={save.isPending || !valid} title="Ctrl+S">
@@ -227,6 +271,11 @@ export function NewPurchasePage() {
           <FormField label="Notes" htmlFor="pu_notes">
             <Input id="pu_notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </FormField>
+          {editId !== undefined && (
+            <div className="md:col-span-4">
+              <ChangeReasonField value={changeReason} onChange={setChangeReason} />
+            </div>
+          )}
         </CardContent>
       </Card>
 

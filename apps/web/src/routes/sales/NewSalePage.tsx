@@ -19,7 +19,7 @@ import {
 } from '@shopledger/shared';
 import { Search, Trash2 } from 'lucide-react';
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { Balance, CustomerStatusBadge } from '@/components/badges';
 import { ItemEntry } from '@/components/document/ItemEntry';
@@ -32,10 +32,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useCan } from '@/features/auth/useAuth';
-import { CUSTOMERS_KEY, usePublicSettings } from '@/features/customers/api';
+import { CUSTOMERS_KEY, useCustomer, usePublicSettings } from '@/features/customers/api';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import { PRODUCTS_KEY } from '@/features/products/api';
 import { OVERDUE_KEY, OverdueBadge } from '@/features/overdue';
+import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { ApprovalDialog } from '@/features/sales/ApprovalDialog';
 import { SALES_KEY } from '@/features/sales/api';
 import { api, ApiError, errorMessage } from '@/lib/api';
@@ -57,6 +58,8 @@ interface Line {
   touched: boolean;
   price_paisa: number;
   product_discount_bp: number;
+  /** Editing: the suggested discount the line was sold with (kept while the customer stays the same). */
+  kept_default_bp?: number;
   stock_qty: number;
 }
 
@@ -88,12 +91,27 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-export function NewSalePage() {
+/** /sales/:id/edit — the New Sale screen in edit mode. */
+export function EditSalePage() {
+  const id = Number(useParams().id);
+  return <NewSalePage key={id} editId={id} />;
+}
+
+export function NewSalePage({ editId }: { editId?: number } = {}) {
   const can = useCan();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const settings = usePublicSettings().data;
   const seeProfit = can('finance.view');
+  // Edit mode (CLAUDE.md 8.6): load the invoice and its customer.
+  const editing = useQuery({
+    queryKey: [...SALES_KEY, 'one', editId],
+    queryFn: () => api.get<{ sale: Sale }>(`/api/sales/${editId}`).then((r) => r.sale),
+    enabled: editId !== undefined,
+  });
+  const original = editing.data;
+  const originalCustomer = useCustomer(original?.customer_id ?? 0, original !== undefined).data;
+  const [changeReason, setChangeReason] = useState('');
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [picking, setPicking] = useState(false);
@@ -107,6 +125,37 @@ export function NewSalePage() {
 
   useHotkey('F2', () => !dialogOpen() && setPicking(true));
 
+  // Fill the form once the invoice being edited has loaded (state set during render, once).
+  const [loaded, setLoaded] = useState(false);
+  if (editId !== undefined && !loaded && original && originalCustomer) {
+    setLoaded(true);
+    setCustomer(originalCustomer);
+    setDate(original.date);
+    setTerms(String(original.payment_terms_days));
+    setNotes(original.notes ?? '');
+    setExtra(original.extra_discount_paisa ? paisaToInput(original.extra_discount_paisa) : '');
+    setLines(
+      (original.lines ?? []).map((l) => ({
+        key: String(l.variant_id),
+        variant_id: l.variant_id,
+        product_id: l.product_id,
+        item_code: l.item_code,
+        name: l.name,
+        color: l.color,
+        size: l.size,
+        unit: l.unit,
+        qty: String(l.qty),
+        discount: bpToPercentString(l.discount_bp),
+        touched: l.discount_overridden,
+        // Items already on the invoice keep the price they were sold at.
+        price_paisa: l.list_price_paisa,
+        product_discount_bp: l.default_discount_bp,
+        kept_default_bp: l.default_discount_bp,
+        stock_qty: Number.MAX_SAFE_INTEGER,
+      })),
+    );
+  }
+
   const defaultFor = (productBp: number, c: Customer | null) =>
     defaultDiscountBp({
       productDiscountBp: productBp,
@@ -115,11 +164,14 @@ export function NewSalePage() {
       retailReductionBp: settings?.retail_discount_reduction_bp ?? 0,
     });
 
+  /** The suggested discount for a line: kept from the invoice being edited while its customer stays the same. */
+  const lineDefault = (l: Line, c: Customer | null) => (l.kept_default_bp !== undefined && c?.id === original?.customer_id ? l.kept_default_bp : defaultFor(l.product_discount_bp, c));
+
   const chooseCustomer = (c: Customer) => {
     setCustomer(c);
     setTerms(String(c.payment_terms_days));
     // Wholesaler/retailer changes the suggested discount on lines nobody changed by hand.
-    setLines((ls) => ls.map((l) => (l.touched ? l : { ...l, discount: bpToPercentString(defaultFor(l.product_discount_bp, c)) })));
+    setLines((ls) => ls.map((l) => (l.touched ? l : { ...l, discount: bpToPercentString(lineDefault(l, c)) })));
   };
 
   const addPicks = (product: Product, picks: GridPick[]) => {
@@ -163,7 +215,7 @@ export function NewSalePage() {
     const qty = Number(l.qty);
     const bp = parsePercentToBp(l.discount);
     if (!Number.isInteger(qty) || qty <= 0 || bp === null || bp > 10_000) return null;
-    return { qty, bp, def: defaultFor(l.product_discount_bp, customer), ...saleLineAmounts(qty, l.price_paisa, bp) };
+    return { qty, bp, def: lineDefault(l, customer), ...saleLineAmounts(qty, l.price_paisa, bp) };
   });
   const linesValid = lines.length > 0 && parsed.every(Boolean);
   const extraPaisa = extra.trim() ? parseRupeesToPaisa(extra) : 0;
@@ -182,7 +234,7 @@ export function NewSalePage() {
         ...(termsValid ? { payment_terms_days: termsDays } : {}),
         notes,
         extra_discount_paisa: extraPaisa ?? 0,
-        cash_received_paisa: cashPaisa ?? 0,
+        ...(editId === undefined ? { cash_received_paisa: cashPaisa ?? 0 } : {}),
         lines: lines.map((l, i) => ({ variant_id: l.variant_id, qty: parsed[i]?.qty ?? 0, discount_bp: parsed[i]?.bp ?? 0 })),
       }
     : null;
@@ -190,8 +242,8 @@ export function NewSalePage() {
   // --- Live check: warnings, approval needs and (owner+) profit ---
   const checkBody = useDebounced(body && amountsValid ? JSON.stringify(body) : null, 250);
   const check = useQuery({
-    queryKey: ['sale-check', checkBody],
-    queryFn: () => api.post<SaleCheckResult>('/api/sales/check', JSON.parse(checkBody as string)),
+    queryKey: ['sale-check', editId, checkBody],
+    queryFn: () => api.post<SaleCheckResult>(editId === undefined ? '/api/sales/check' : `/api/sales/${editId}/check`, JSON.parse(checkBody as string)),
     enabled: checkBody !== null,
     placeholderData: (prev) => prev,
     retry: false,
@@ -202,14 +254,22 @@ export function NewSalePage() {
 
   const save = useMutation({
     mutationFn: (v: { approval?: ApprovalInput; share: boolean }) =>
-      api.post<{ sale: Sale }>('/api/sales', { ...body, customer_id: customer?.id, expected_total_paisa: total, ...(v.approval ? { approval: v.approval } : {}) }),
+      editId === undefined
+        ? api.post<{ sale: Sale }>('/api/sales', { ...body, customer_id: customer?.id, expected_total_paisa: total, ...(v.approval ? { approval: v.approval } : {}) })
+        : api.put<{ sale: Sale }>(`/api/sales/${editId}`, {
+            ...body,
+            customer_id: customer?.id,
+            expected_total_paisa: total,
+            change_reason: changeReason,
+            ...(v.approval ? { approval: v.approval } : {}),
+          }),
     onSuccess: ({ sale }, v) => {
       setApproval(null);
       void qc.invalidateQueries({ queryKey: SALES_KEY });
       void qc.invalidateQueries({ queryKey: PRODUCTS_KEY });
       void qc.invalidateQueries({ queryKey: CUSTOMERS_KEY });
       void qc.invalidateQueries({ queryKey: OVERDUE_KEY });
-      toast.success(`Invoice ${sale.doc_no} saved.`);
+      toast.success(editId === undefined ? `Invoice ${sale.doc_no} saved.` : `Invoice ${sale.doc_no} updated (version ${sale.version}).`);
       navigate(`/sales/${sale.id}${v.share ? '?share=1' : ''}`);
     },
     onError: (e, v) => {
@@ -231,6 +291,7 @@ export function NewSalePage() {
     if (!linesValid) return toast.error('Add items, and check the highlighted lines: quantity and discount % are needed.');
     if (!termsValid) return toast.error('Payment terms must be 0 to 365 days.');
     if (!amountsValid) return toast.error('Check the extra discount and cash received: they cannot be more than the invoice.');
+    if (editId !== undefined && !changeReasonOk(changeReason)) return toast.error('Enter the reason for the change.');
     if (result?.needs_approval) return setApproval({ issues: result.issues, share, error: null });
     save.mutate({ share });
   };
@@ -243,7 +304,8 @@ export function NewSalePage() {
   return (
     <div className="max-w-6xl">
       <PageHeader
-        title="New sale"
+        title={editId === undefined ? 'New sale' : `Edit invoice ${original?.doc_no ?? ''}`}
+        description={editId === undefined ? undefined : 'Items already on the invoice keep the price they were sold at. Cash taken at the counter is changed on its receipt.'}
         actions={
           <>
             <Button variant="outline" onClick={() => trySave(true)} disabled={save.isPending} title="Ctrl+Enter">
@@ -434,14 +496,18 @@ export function NewSalePage() {
           <FormField label="Extra discount on invoice" htmlFor="sa_extra" error={extraPaisa === null ? 'Enter an amount in rupees' : undefined}>
             <MoneyInput id="sa_extra" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="0" />
           </FormField>
-          <FormField label="Cash received now" htmlFor="sa_cash" error={cashPaisa === null ? 'Enter an amount in rupees' : cashPaisa > total && total >= 0 ? 'More than the invoice' : undefined}>
-            <div className="flex gap-2">
-              <MoneyInput id="sa_cash" value={cash} onChange={(e) => setCash(e.target.value)} placeholder="0" />
-              <Button variant="outline" size="sm" className="h-9" onClick={() => setCash(total > 0 ? paisaToInput(total) : '')} disabled={total <= 0}>
-                Full
-              </Button>
-            </div>
-          </FormField>
+          {editId === undefined ? (
+            <FormField label="Cash received now" htmlFor="sa_cash" error={cashPaisa === null ? 'Enter an amount in rupees' : cashPaisa > total && total >= 0 ? 'More than the invoice' : undefined}>
+              <div className="flex gap-2">
+                <MoneyInput id="sa_cash" value={cash} onChange={(e) => setCash(e.target.value)} placeholder="0" />
+                <Button variant="outline" size="sm" className="h-9" onClick={() => setCash(total > 0 ? paisaToInput(total) : '')} disabled={total <= 0}>
+                  Full
+                </Button>
+              </div>
+            </FormField>
+          ) : (
+            <ChangeReasonField value={changeReason} onChange={setChangeReason} />
+          )}
           <FormField label="Notes" htmlFor="sa_notes">
             <Input id="sa_notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </FormField>

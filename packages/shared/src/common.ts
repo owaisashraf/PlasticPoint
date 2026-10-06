@@ -42,3 +42,10 @@ export const listQuerySchema = z.object({
 });
 
 export const reasonSchema = z.string().trim().min(3, 'Enter a reason').max(300);
+
+/** Why a document was edited (recorded in the change history). */
+export const changeReasonSchema = z.string().trim().min(3, 'Enter the reason for the change').max(300);
+
+/** Voiding any document: a reason is required. */
+export const voidSchema = z.object({ reason: reasonSchema }).strict();
+export type VoidInput = z.input<typeof voidSchema>;

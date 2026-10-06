@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { createSaleSchema, idParamSchema, saleCheckSchema, saleListQuerySchema, salePdfQuerySchema } from '@shopledger/shared';
+import { createSaleSchema, idParamSchema, saleCheckSchema, saleListQuerySchema, salePdfQuerySchema, updateSaleSchema, voidSchema } from '@shopledger/shared';
 import type { AppInstance } from '../../app';
 import { writeTx } from '../../db/client';
 import { writeAudit } from '../../lib/audit';
@@ -8,7 +8,7 @@ import { redact } from '../../lib/redact';
 import { ensureInvoicePdf, type PaperSize } from '../../pdf/invoice';
 import { auditActor, verifyApproval } from '../auth/service';
 import { getSettings } from '../settings/service';
-import { checkSale, createSale, getSale, invoiceBalances, listSales } from './service';
+import { checkSale, checkSaleEdit, createSale, getSale, invoiceBalances, listSales, updateSale, voidSale } from './service';
 
 export async function saleRoutes(app: AppInstance) {
   const { ctx } = app;
@@ -33,6 +33,26 @@ export async function saleRoutes(app: AppInstance) {
     const approver = await verifyApproval(ctx.dbh.db, user, req.body.approval, 'sale');
     return redact({ sale: createSale(ctx.dbh.db, user, req.body, approver) }, req.user);
   });
+
+  // Editing (CLAUDE.md 8.6): operators their own same-day invoices, owner+ any. The service checks which.
+  app.post('/api/sales/:id/check', { ...create, schema: { params: idParamSchema, body: saleCheckSchema } }, async (req) =>
+    redact(checkSaleEdit(ctx.dbh.db, currentUser(req), req.params.id, req.body), req.user),
+  );
+
+  app.put('/api/sales/:id', { ...requirePermission('documents.edit_own_same_day'), schema: { params: idParamSchema, body: updateSaleSchema } }, async (req) => {
+    const db = ctx.dbh.db;
+    const user = currentUser(req);
+    const approver = await verifyApproval(db, user, req.body.approval, 'sale edit');
+    const sale = updateSale(db, user, req.params.id, req.body, approver);
+    // The PDF of the new version is made now; earlier versions' files are kept.
+    const settings = getSettings(db);
+    await ensureInvoicePdf(ctx.config.invoicesDir, sale, invoiceBalances(db, sale), settings, settings.invoice_paper_size);
+    return redact({ sale }, req.user);
+  });
+
+  app.post('/api/sales/:id/void', { ...requirePermission('documents.edit_any'), schema: { params: idParamSchema, body: voidSchema } }, async (req) =>
+    redact({ sale: voidSale(ctx.dbh.db, currentUser(req), req.params.id, req.body.reason) }, req.user),
+  );
 
   // Printing: the client calls /print (logged in the audit log, PDF refreshed),
   // then opens /pdf in a new tab. Invoices never show margin, cost or profit.

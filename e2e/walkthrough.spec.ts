@@ -1,13 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–6 on a fresh database, in order:
+// A click-through of phases 1–7 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
 // share) → a below-cost sale needs the owner password → owner sees profit →
 // payments (FIFO), a return with refund, a bounced cheque and a write-off →
-// an overdue customer (badges, Overdue tab, report) → superuser verifies the
-// audit log.
+// an overdue customer (badges, Overdue tab, report) → owner edits an invoice →
+// superuser reviews the diff in Change History and verifies the audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -192,7 +192,7 @@ test('4. operator records a purchase with the size × color grid, prints it and 
   await shot(page, '11-return-dialog');
   await rd.getByRole('button', { name: 'Save return' }).click();
   await expect(page.getByText('Return PRN-000001 saved.')).toBeVisible();
-  await expect(page.getByText(/PRN-000001 · .* · Cracked on delivery/)).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'Cracked on delivery' })).toContainText('PRN-000001');
 
   // Stock grid on the product: Red 10L = 8, Blue 15L = 4.
   await nav(page, 'Products & Stock').click();
@@ -385,7 +385,7 @@ test('11. operator takes a return from an invoice and pays part back', async ({ 
   await shot(page, '27-sales-return-dialog');
   await rd.getByRole('button', { name: 'Save return' }).click();
   await expect(page.getByText('Return SRN-000001 saved: Rs 840 credited, Rs 228 paid back.')).toBeVisible();
-  await expect(page.getByText(/SRN-000001 · .* · Handle broken/)).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'Handle broken' })).toContainText('SRN-000001');
   await shot(page, '28-sale-after-return');
 
   await nav(page, 'Customers').click();
@@ -503,7 +503,55 @@ test('13. a back-dated invoice makes a customer overdue: badges, the Overdue tab
   await shot(page, '35-new-sale-overdue-warning');
 });
 
-test('14. superuser verifies the audit log', async ({ page }) => {
+test('14. an operator can edit their own invoice today but not void it; the owner edits an invoice', async ({ page }) => {
+  await login(page, 'ali', PW.operator);
+  await nav(page, 'Sales').click();
+  await page.getByRole('cell', { name: 'INV-000001' }).click();
+  await expect(page.getByRole('heading', { name: /Invoice INV-000001/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Void' })).toHaveCount(0);
+  await logout(page);
+
+  await login(page, 'owner', PW.owner);
+  await nav(page, 'Sales').click();
+  await page.getByRole('cell', { name: 'INV-000003' }).click();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit invoice INV-000003' })).toBeVisible();
+  await expect(page.getByLabel('Quantity B-101 Red 10L')).toHaveValue('1');
+  await page.getByLabel('Quantity B-101 Red 10L').fill('2');
+  await page.getByLabel('Discount percent B-101 Red 10L').fill('12');
+  await page.getByLabel('Reason for the change').fill('Customer took two, at the agreed 12%');
+  await expect(page.getByRole('cell', { name: 'Rs 1,848' })).toBeVisible();
+  await shot(page, '36-edit-invoice');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByText('Invoice INV-000003 updated (version 2).')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Invoice INV-000003/ })).toBeVisible();
+  await expect(page.getByText('Rs 1,848').first()).toBeVisible();
+  await logout(page);
+});
+
+test('15. the superuser sees the edit and its diff in Change History, and reviews it', async ({ page }) => {
+  await login(page, 'super', PW.super);
+  await expect(page.getByLabel('Unreviewed flagged changes')).not.toHaveText('0');
+  await nav(page, 'Change History').click();
+  const row = page.getByRole('row', { name: /Edited.*INV-000003/ });
+  await expect(row).toContainText('v1 → v2');
+  await expect(row).toContainText('Total increased');
+  await expect(row).toContainText('Customer took two');
+  await shot(page, '37-change-history');
+  await row.click();
+  const d = page.getByRole('dialog');
+  await expect(d.getByText(/B-101 Red 10L: Qty 1 → 2 · Discount % 10% → 12% · Line net Rs 945 → Rs 1,848/)).toBeVisible();
+  await expect(d.getByText(/Timeline of INV-000003/)).toBeVisible();
+  await shot(page, '38-change-diff');
+  await d.getByLabel('Review note').fill('Confirmed with the owner');
+  await d.getByRole('button', { name: 'Mark reviewed' }).click();
+  await expect(d.getByText(/Reviewed by Main Admin/)).toBeVisible();
+  await d.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await expect(page.getByRole('row', { name: /Edited.*INV-000003/ }).getByLabel('Reviewed')).toBeVisible();
+});
+
+test('16. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

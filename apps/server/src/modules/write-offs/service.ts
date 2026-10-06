@@ -1,13 +1,14 @@
 import { asc, desc, eq, sql } from 'drizzle-orm';
-import { createWriteOffSchema, reverseWriteOffSchema, type WriteOff } from '@shopledger/shared';
+import { createWriteOffSchema, reverseWriteOffSchema, updateWriteOffSchema, type WriteOff } from '@shopledger/shared';
 import type { z } from 'zod';
 import { writeTx, type DB, type DbOrTx } from '../../db/client';
 import { customers, users, write_off_reversals, write_offs } from '../../db/schema';
-import { recalcAllocations } from '../../lib/allocation';
+import { recalcAllocations, removeAllocationsFromSource } from '../../lib/allocation';
 import { writeAudit } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
+import { assertCanEdit, assertCanVoid, changeFlags, diffSnapshots, totalFlags, uniqueFlags } from '../../lib/documents';
 import { badRequest, notFound } from '../../lib/errors';
-import { partyBalance, postEntry } from '../../lib/ledger';
+import { partyBalance, postEntry, removeEntriesForSource } from '../../lib/ledger';
 import { formatPaisa } from '../../lib/money';
 import { nextDocNo } from '../../lib/numbering';
 import type { SessionUser } from '../../lib/permissions';
@@ -15,6 +16,7 @@ import { auditActor } from '../auth/service';
 
 type CreateInput = z.output<typeof createWriteOffSchema>;
 type ReverseInput = z.output<typeof reverseWriteOffSchema>;
+type UpdateInput = z.output<typeof updateWriteOffSchema>;
 
 /**
  * Write-offs (CLAUDE.md 8.8), owner and superuser only. A write-off credits
@@ -45,7 +47,9 @@ function toWriteOff(db: DbOrTx, r: { w: typeof write_offs.$inferSelect; created_
     reversed_paisa: revs.reduce((a, x) => a + x.amount_paisa, 0),
     reason: r.w.reason,
     status: r.w.status,
+    version: r.w.version,
     created_at: r.w.created_at,
+    created_by_id: r.w.created_by,
     created_by_name: r.created_by_name,
     reversals: revs,
   };
@@ -167,4 +171,89 @@ export function netWrittenOff(db: DbOrTx, customerId: number): number {
   const w = db.select({ s: sql<number>`coalesce(sum(${write_offs.amount_paisa}), 0)` }).from(write_offs).where(eq(write_offs.customer_id, customerId)).get()?.s ?? 0;
   const r = db.select({ s: sql<number>`coalesce(sum(${write_off_reversals.amount_paisa}), 0)` }).from(write_off_reversals).where(eq(write_off_reversals.customer_id, customerId)).get()?.s ?? 0;
   return w - r;
+}
+
+// --- Editing and voiding (CLAUDE.md 8.6) ---------------------------------------------
+
+function writeOffSnapshot(db: DbOrTx, id: number) {
+  const { reversals: revs, ...w } = getWriteOff(db, id);
+  return { ...w, lines: revs };
+}
+
+/**
+ * Owner+: edits a write-off (date, amount, reason). The amount stays within
+ * what the customer owes without it, and at least what was already taken back.
+ */
+export function updateWriteOff(db: DB, user: SessionUser, id: number, input: UpdateInput): WriteOff {
+  if (input.date > businessToday()) throw badRequest('The date cannot be in the future.');
+  return writeTx(db, (tx) => {
+    const row = tx.select().from(write_offs).where(eq(write_offs.id, id)).get();
+    if (!row) throw notFound('Write-off not found.');
+    assertCanEdit(user, row, 'write_offs.manage');
+    const before = writeOffSnapshot(tx, id);
+    if (input.amount_paisa < before.reversed_paisa) throw badRequest(`${formatPaisa(before.reversed_paisa)} of this write-off was already taken back, so it cannot be less than that.`);
+    if (before.lines.some((r) => r.date < input.date)) throw badRequest('A reversal of this write-off is dated before the new date.');
+    removeEntriesForSource(tx, 'write_off', id);
+    const balance = partyBalance(tx, 'customer', row.customer_id);
+    if (input.amount_paisa > balance) throw badRequest(`You can write off at most the balance of ${formatPaisa(balance)}.`);
+    tx.update(write_offs)
+      .set({ date: input.date, amount_paisa: input.amount_paisa, reason: input.reason, version: row.version + 1, updated_by: user.id, updated_at: nowIso() })
+      .where(eq(write_offs.id, id))
+      .run();
+    postEntry(tx, {
+      party_type: 'customer',
+      party_id: row.customer_id,
+      date: input.date,
+      credit_paisa: input.amount_paisa,
+      entry_type: 'write_off',
+      source_type: 'write_off',
+      source_id: id,
+      narration: `Written off ${row.doc_no}: ${input.reason}`,
+    });
+    recalcAllocations(tx, row.customer_id);
+    const after = writeOffSnapshot(tx, id);
+    writeAudit(tx, auditActor(user), {
+      action: 'edit',
+      entity: 'write_off',
+      entity_id: id,
+      doc_no: row.doc_no,
+      version_before: row.version,
+      version_after: row.version + 1,
+      before,
+      after,
+      summary: { changed_fields: Object.keys(diffSnapshots(before, after, (l) => String(l.id), (l) => String(l.date)).fields), customer_id: row.customer_id, amount_before_paisa: row.amount_paisa, amount_after_paisa: input.amount_paisa },
+      flags: uniqueFlags(changeFlags(tx, user, 'write_off', id, row.created_at), totalFlags(row.amount_paisa, input.amount_paisa)),
+      reason: input.change_reason,
+    });
+    return getWriteOff(tx, id);
+  });
+}
+
+/** Owner+: voids a write-off, together with any reversals of it. The customer owes the amount again. */
+export function voidWriteOff(db: DB, user: SessionUser, id: number, reason: string): WriteOff {
+  return writeTx(db, (tx) => {
+    const row = tx.select().from(write_offs).where(eq(write_offs.id, id)).get();
+    if (!row) throw notFound('Write-off not found.');
+    assertCanVoid(user, row);
+    const before = writeOffSnapshot(tx, id);
+    removeEntriesForSource(tx, 'write_off', id);
+    for (const r of before.lines) removeEntriesForSource(tx, 'write_off_reversal', r.id);
+    removeAllocationsFromSource(tx, 'write_off', id);
+    tx.update(write_offs).set({ status: 'void', version: row.version + 1, updated_by: user.id, updated_at: nowIso() }).where(eq(write_offs.id, id)).run();
+    recalcAllocations(tx, row.customer_id);
+    writeAudit(tx, auditActor(user), {
+      action: 'void',
+      entity: 'write_off',
+      entity_id: id,
+      doc_no: row.doc_no,
+      version_before: row.version,
+      version_after: row.version + 1,
+      before,
+      after: writeOffSnapshot(tx, id),
+      summary: { customer_id: row.customer_id, amount_before_paisa: row.amount_paisa, amount_after_paisa: 0 },
+      flags: uniqueFlags(changeFlags(tx, user, 'write_off', id, row.created_at), ['voided']),
+      reason,
+    });
+    return getWriteOff(tx, id);
+  });
 }

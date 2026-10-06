@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { formatPaisa, parseRupeesToPaisa, PAYMENT_METHODS, type Payment, type PaymentMethod, type Supplier } from '@shopledger/shared';
+import { formatPaisa, paisaToInput, parseRupeesToPaisa, PAYMENT_METHODS, type Payment, type PaymentMethod, type Supplier } from '@shopledger/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { FormField } from '@/components/FormField';
@@ -7,43 +7,48 @@ import { MoneyInput } from '@/components/inputs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
+import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
 import { METHOD_LABEL } from './ReceivePaymentDialog';
 
 /** Pay the supplier (CLAUDE.md 10.7). Reduces what we owe on the supplier ledger. */
-export function PaySupplierDialog({ suppliers, onClose }: { suppliers: Supplier[]; onClose: () => void }) {
+export function PaySupplierDialog({ suppliers, payment, onClose }: { suppliers: Supplier[]; /** Edit this payment instead. */ payment?: Payment; onClose: () => void }) {
   const refresh = useRefreshAfterMoney();
-  const active = suppliers.filter((s) => s.active);
-  const [supplierId, setSupplierId] = useState<number | null>(active.length === 1 ? (active[0]?.id ?? null) : null);
-  const [date, setDate] = useState(todayKarachi());
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('bank');
-  const [reference, setReference] = useState('');
-  const [chequeNo, setChequeNo] = useState('');
-  const [chequeBank, setChequeBank] = useState('');
-  const [chequeDate, setChequeDate] = useState('');
-  const [notes, setNotes] = useState('');
+  const active = suppliers.filter((s) => s.active || s.id === payment?.party_id);
+  const [supplierId, setSupplierId] = useState<number | null>(payment?.party_id ?? (active.length === 1 ? (active[0]?.id ?? null) : null));
+  const [date, setDate] = useState(payment?.date ?? todayKarachi());
+  const [amount, setAmount] = useState(payment ? paisaToInput(payment.amount_paisa) : '');
+  const [method, setMethod] = useState<PaymentMethod>(payment?.method ?? 'bank');
+  const [reference, setReference] = useState(payment?.reference ?? '');
+  const [chequeNo, setChequeNo] = useState(payment?.cheque_no ?? '');
+  const [chequeBank, setChequeBank] = useState(payment?.cheque_bank ?? '');
+  const [chequeDate, setChequeDate] = useState(payment?.cheque_date ?? '');
+  const [notes, setNotes] = useState(payment?.notes ?? '');
+  const [changeReason, setChangeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const supplier = active.find((s) => s.id === supplierId);
   const amountPaisa = amount.trim() ? parseRupeesToPaisa(amount) : null;
-  const valid = supplierId !== null && amountPaisa !== null && amountPaisa > 0 && (method !== 'cheque' || chequeNo.trim() !== '');
+  const valid = supplierId !== null && amountPaisa !== null && amountPaisa > 0 && (method !== 'cheque' || chequeNo.trim() !== '') && (!payment || changeReasonOk(changeReason));
 
   const save = useMutation({
-    mutationFn: () =>
-      api.post<{ payment: Payment }>('/api/payments/supplier', {
-        supplier_id: supplierId,
+    mutationFn: () => {
+      const body = {
         date,
         amount_paisa: amountPaisa,
         method,
         reference,
         notes,
         ...(method === 'cheque' ? { cheque_no: chequeNo, cheque_bank: chequeBank, cheque_date: chequeDate || null } : {}),
-      }),
-    onSuccess: ({ payment }) => {
+      };
+      return payment
+        ? api.put<{ payment: Payment }>(`/api/payments/supplier/${payment.id}`, { ...body, change_reason: changeReason })
+        : api.post<{ payment: Payment }>('/api/payments/supplier', { ...body, supplier_id: supplierId });
+    },
+    onSuccess: ({ payment: saved }) => {
       refresh();
-      toast.success(`Payment ${payment.doc_no} saved.`);
+      toast.success(payment ? `Payment ${saved.doc_no} updated.` : `Payment ${saved.doc_no} saved.`);
       onClose();
     },
     onError: (e) => setError(e instanceof ApiError && e.fields ? Object.values(e.fields)[0] ?? errorMessage(e) : errorMessage(e)),
@@ -53,7 +58,7 @@ export function PaySupplierDialog({ suppliers, onClose }: { suppliers: Supplier[
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Pay supplier</DialogTitle>
+          <DialogTitle>{payment ? `Edit payment ${payment.doc_no}` : 'Pay supplier'}</DialogTitle>
           {supplier && (
             <DialogDescription>
               We owe {supplier.name} {supplier.balance_paisa < 0 ? `nothing (advance paid ${formatPaisa(-supplier.balance_paisa)})` : formatPaisa(supplier.balance_paisa)}.
@@ -68,7 +73,7 @@ export function PaySupplierDialog({ suppliers, onClose }: { suppliers: Supplier[
             if (valid) save.mutate();
           }}
         >
-          {active.length > 1 && (
+          {active.length > 1 && !payment && (
             <div className="md:col-span-2">
               <FormField label="Supplier" htmlFor="ps_supplier">
                 <NativeSelect id="ps_supplier" value={supplierId ?? ''} onChange={(e) => setSupplierId(Number(e.target.value) || null)}>
@@ -121,6 +126,11 @@ export function PaySupplierDialog({ suppliers, onClose }: { suppliers: Supplier[
               <Input id="ps_notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </FormField>
           </div>
+          {payment && (
+            <div className="md:col-span-2">
+              <ChangeReasonField id="ps_change_reason" value={changeReason} onChange={setChangeReason} />
+            </div>
+          )}
           {error && <p className="font-medium text-destructive md:col-span-2">{error}</p>}
           <DialogFooter className="md:col-span-2">
             <Button type="button" variant="outline" onClick={onClose}>

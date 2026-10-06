@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { bpToPercentString, formatPaisa, type Purchase, type PurchaseReturn } from '@shopledger/shared';
-import { ArrowLeft, Printer, Undo2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Printer, Undo2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { FormField } from '@/components/FormField';
 import { FullPageMessage } from '@/components/FullPageMessage';
@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useCan } from '@/features/auth/useAuth';
+import { ChangeReasonField, changeReasonOk, useDocRights, VoidButton } from '@/features/documents';
 import { PRODUCTS_KEY } from '@/features/products/api';
 import { printPurchase, PURCHASES_KEY, usePurchase } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
@@ -22,7 +23,10 @@ export function PurchaseDetailPage() {
   const can = useCan();
   const { data: p, isPending, isError, error } = usePurchase(id);
   const [returning, setReturning] = useState(false);
+  const [editingReturn, setEditingReturn] = useState<PurchaseReturn | null>(null);
   const [printing, setPrinting] = useState(false);
+  const navigate = useNavigate();
+  const rights = useDocRights(p);
 
   if (isPending) return <p>Loading…</p>;
   if (isError) return <FullPageMessage inline title="Purchase not found" detail={errorMessage(error)} />;
@@ -57,7 +61,13 @@ export function PurchaseDetailPage() {
             {p.supplier_ref && ` · bill ${p.supplier_ref}`} · entered by {p.created_by_name ?? '—'} on {formatDateTime(p.created_at)}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {rights.canEdit && can('purchases.create') && (
+            <Button variant="outline" onClick={() => navigate(`/purchases/${p.id}/edit`)}>
+              <Pencil /> Edit
+            </Button>
+          )}
+          {rights.canVoid && <VoidButton url={`/api/purchases/${p.id}/void`} docNo={p.doc_no} description="Its stock is taken out again." />}
           {can('purchases.create') && (
             <Button variant="outline" onClick={() => void print()} disabled={printing}>
               <Printer /> Print / PDF
@@ -126,9 +136,28 @@ export function PurchaseDetailPage() {
           <CardContent>
             <ul className="flex flex-col gap-1">
               {p.returns.map((r) => (
-                <li key={r.id}>
-                  <span className="font-mono font-semibold">{r.doc_no}</span> · {r.date} · {r.reason}
+                <li key={r.id} className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-semibold">{r.doc_no}</span>
+                  {r.status === 'void' && <Badge variant="grey">VOID</Badge>}
+                  <span>
+                    · {r.date} · {r.reason}
+                  </span>
                   {r.total_cost_paisa !== undefined && <span className="amount ml-2">{formatPaisa(r.total_cost_paisa)}</span>}
+                  {r.status === 'posted' && can('purchases.create') && (can('documents.edit_any') || can('documents.edit_own_same_day')) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        api
+                          .get<{ purchase_return: PurchaseReturn }>(`/api/purchase-returns/${r.id}`)
+                          .then((x) => setEditingReturn(x.purchase_return))
+                          .catch((e: unknown) => toast.error(errorMessage(e)))
+                      }
+                    >
+                      <Pencil /> Edit
+                    </Button>
+                  )}
+                  {r.status === 'posted' && can('documents.edit_any') && <VoidButton size="sm" url={`/api/purchase-returns/${r.id}/void`} docNo={r.doc_no} description="The goods come back into stock." />}
                 </li>
               ))}
             </ul>
@@ -137,28 +166,32 @@ export function PurchaseDetailPage() {
       )}
 
       {returning && <ReturnDialog purchase={p} onClose={() => setReturning(false)} />}
+      {editingReturn && <ReturnDialog purchase={p} existing={editingReturn} onClose={() => setEditingReturn(null)} />}
     </div>
   );
 }
 
-function ReturnDialog({ purchase, onClose }: { purchase: Purchase; onClose: () => void }) {
+function ReturnDialog({ purchase, existing, onClose }: { purchase: Purchase; /** Edit this return instead. */ existing?: PurchaseReturn; onClose: () => void }) {
   const qc = useQueryClient();
-  const lines = (purchase.lines ?? []).filter((l) => l.qty > l.returned_qty);
-  const [qty, setQty] = useState<Record<number, string>>({});
-  const [date, setDate] = useState(todayKarachi());
-  const [reason, setReason] = useState('');
+  // When editing, this return's own quantities can be sent back again.
+  const own = new Map((existing?.lines ?? []).map((l) => [l.purchase_item_id, l.qty]));
+  const lines = (purchase.lines ?? []).map((l) => ({ ...l, returned_qty: l.returned_qty - (own.get(l.id) ?? 0) })).filter((l) => l.qty > l.returned_qty);
+  const [qty, setQty] = useState<Record<number, string>>(Object.fromEntries([...own].map(([id, q]) => [id, String(q)])));
+  const [date, setDate] = useState(existing?.date ?? todayKarachi());
+  const [reason, setReason] = useState(existing?.reason ?? '');
+  const [changeReason, setChangeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const picked = lines.map((l) => ({ l, n: Number(qty[l.id] || 0) })).filter((x) => x.n > 0);
   const tooMany = picked.find((x) => x.n > x.l.qty - x.l.returned_qty || !Number.isInteger(x.n));
 
   const save = useMutation({
-    mutationFn: () =>
-      api.post<{ purchase_return: PurchaseReturn }>(`/api/purchases/${purchase.id}/returns`, {
-        date,
-        reason,
-        lines: picked.map((x) => ({ purchase_item_id: x.l.id, qty: x.n })),
-      }),
+    mutationFn: () => {
+      const body = { date, reason, lines: picked.map((x) => ({ purchase_item_id: x.l.id, qty: x.n })) };
+      return existing
+        ? api.put<{ purchase_return: PurchaseReturn }>(`/api/purchase-returns/${existing.id}`, { ...body, change_reason: changeReason })
+        : api.post<{ purchase_return: PurchaseReturn }>(`/api/purchases/${purchase.id}/returns`, body);
+    },
     onSuccess: ({ purchase_return }) => {
       void qc.invalidateQueries({ queryKey: PURCHASES_KEY });
       void qc.invalidateQueries({ queryKey: PRODUCTS_KEY });
@@ -173,7 +206,7 @@ function ReturnDialog({ purchase, onClose }: { purchase: Purchase; onClose: () =
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Return items to the supplier</DialogTitle>
+          <DialogTitle>{existing ? `Edit return ${existing.doc_no}` : 'Return items to the supplier'}</DialogTitle>
           <DialogDescription>From {purchase.doc_no}. Only items still in stock can be sent back.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[50vh] overflow-y-auto">
@@ -224,13 +257,14 @@ function ReturnDialog({ purchase, onClose }: { purchase: Purchase; onClose: () =
             </FormField>
           </div>
         </div>
+        {existing && <ChangeReasonField id="pr_change_reason" value={changeReason} onChange={setChangeReason} />}
         {tooMany && <p className="font-medium text-destructive">{tooMany.l.item_code}: you can return at most {tooMany.l.qty - tooMany.l.returned_qty}.</p>}
         {error && <p className="font-medium text-destructive">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending || picked.length === 0 || !!tooMany || reason.trim().length < 3}>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || picked.length === 0 || !!tooMany || reason.trim().length < 3 || (!!existing && !changeReasonOk(changeReason))}>
             Save return
           </Button>
         </DialogFooter>

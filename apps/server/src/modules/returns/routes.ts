@@ -1,8 +1,8 @@
-import { can, createSalesReturnSchema, idParamSchema, returnListQuerySchema } from '@shopledger/shared';
+import { can, createSalesReturnSchema, idParamSchema, returnListQuerySchema, updateSalesReturnSchema, voidSchema } from '@shopledger/shared';
 import type { AppInstance } from '../../app';
 import { currentUser, requirePermission } from '../../lib/permissions';
 import { redact } from '../../lib/redact';
-import { createSalesReturn, getSalesReturn, listPurchaseReturns, listSalesReturns } from './service';
+import { createSalesReturn, getSalesReturn, listPurchaseReturns, listSalesReturns, updateSalesReturn, voidSalesReturn } from './service';
 
 export async function returnRoutes(app: AppInstance) {
   const { ctx } = app;
@@ -17,6 +17,13 @@ export async function returnRoutes(app: AppInstance) {
 
   app.get('/api/sales-returns/:id', { ...view, schema: { params: idParamSchema } }, async (req) =>
     redact({ sales_return: getSalesReturn(ctx.dbh.db, req.params.id) }, req.user),
+  );
+
+  app.put('/api/sales-returns/:id', { ...requirePermission('documents.edit_own_same_day'), schema: { params: idParamSchema, body: updateSalesReturnSchema } }, async (req) =>
+    redact({ sales_return: updateSalesReturn(ctx.dbh.db, currentUser(req), req.params.id, req.body) }, req.user),
+  );
+  app.post('/api/sales-returns/:id/void', { ...requirePermission('documents.edit_any'), schema: { params: idParamSchema, body: voidSchema } }, async (req) =>
+    redact({ sales_return: voidSalesReturn(ctx.dbh.db, currentUser(req), req.params.id, req.body.reason) }, req.user),
   );
 
   // Purchase returns show cost to those allowed to record purchases (section 6), like purchases do.

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { formatPaisa, type Payment, type PaymentKind } from '@shopledger/shared';
+import { formatPaisa, type Customer, type Payment, type PaymentKind } from '@shopledger/shared';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -9,10 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useCan } from '@/features/auth/useAuth';
+import { useDocRights, VoidButton } from '@/features/documents';
+import { useSuppliers } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 import { usePayments, useRefreshAfterMoney } from './api';
-import { METHOD_LABEL } from './ReceivePaymentDialog';
+import { PaySupplierDialog } from './PaySupplierDialog';
+import { METHOD_LABEL, ReceivePaymentDialog } from './ReceivePaymentDialog';
+import { RefundEditDialog } from './RefundEditDialog';
 
 const KIND_LABEL: Record<PaymentKind, string> = { receipt: 'Received', supplier_payment: 'Paid to supplier', refund: 'Refund' };
 
@@ -124,6 +128,8 @@ function PaymentDetailDialog({ id, onClose }: { id: number; onClose: () => void 
   const can = useCan();
   const refresh = useRefreshAfterMoney();
   const [bouncing, setBouncing] = useState(false);
+  const [editing, setEditing] = useState<{ customer?: Customer } | null>(null);
+  const suppliers = useSuppliers();
   const { data: p, isError, error } = useQuery({ queryKey: ['payments', 'one', id], queryFn: () => api.get<{ payment: Payment }>(`/api/payments/${id}`).then((r) => r.payment) });
   const bounce = useMutation({
     mutationFn: (reason: string) => api.post(`/api/payments/${id}/bounce`, { reason }),
@@ -136,10 +142,20 @@ function PaymentDetailDialog({ id, onClose }: { id: number; onClose: () => void 
     onError: (e) => toast.error(errorMessage(e)),
   });
   const canBounce = p && can('cheques.mark_bounced') && p.kind === 'receipt' && p.method === 'cheque' && p.status === 'posted';
+  const rights = useDocRights(p);
+  const startEdit = async () => {
+    if (!p) return;
+    if (p.kind !== 'receipt') return setEditing({});
+    try {
+      setEditing({ customer: (await api.get<{ customer: Customer }>(`/api/customers/${p.party_id}`)).customer });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
 
   return (
     <>
-      <Dialog open={!bouncing} onOpenChange={(o) => !o && onClose()}>
+      <Dialog open={!bouncing && !editing} onOpenChange={(o) => !o && onClose()}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -195,6 +211,12 @@ function PaymentDetailDialog({ id, onClose }: { id: number; onClose: () => void 
             </div>
           )}
           <DialogFooter>
+            {rights.canEdit && (
+              <Button variant="outline" onClick={() => void startEdit()}>
+                Edit
+              </Button>
+            )}
+            {rights.canVoid && p && <VoidButton url={`/api/payments/${p.id}/void`} docNo={p.doc_no} onDone={onClose} />}
             {canBounce && (
               <Button variant="destructive" onClick={() => setBouncing(true)}>
                 Mark cheque bounced
@@ -206,6 +228,9 @@ function PaymentDetailDialog({ id, onClose }: { id: number; onClose: () => void 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {editing && p?.kind === 'receipt' && editing.customer && <ReceivePaymentDialog customer={editing.customer} payment={p} onClose={onClose} />}
+      {editing && p?.kind === 'supplier_payment' && suppliers.data && <PaySupplierDialog suppliers={suppliers.data} payment={p} onClose={onClose} />}
+      {editing && p?.kind === 'refund' && <RefundEditDialog payment={p} onClose={onClose} />}
       {bouncing && p && (
         <ReasonDialog
           title={`Cheque ${p.cheque_no ?? ''} bounced?`}

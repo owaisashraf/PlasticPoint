@@ -1,7 +1,8 @@
-import { formatBp, formatPaisa, formatPhone, roundDiv, type SaleAllocation } from '@shopledger/shared';
-import { ArrowLeft, HandCoins, Share2, Undo2 } from 'lucide-react';
+import { formatBp, formatPaisa, formatPhone, roundDiv, type SaleAllocation, type SalesReturn } from '@shopledger/shared';
+import { ArrowLeft, HandCoins, Pencil, Share2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { toast } from 'sonner';
 import { CustomerStatusBadge } from '@/components/badges';
 import { FullPageMessage } from '@/components/FullPageMessage';
 import { Badge } from '@/components/ui/badge';
@@ -9,12 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCan } from '@/features/auth/useAuth';
 import { useCustomer } from '@/features/customers/api';
+import { useDocRights, VoidButton } from '@/features/documents';
 import { OverdueBadge } from '@/features/overdue';
 import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnDialog } from '@/features/payments/SalesReturnDialog';
 import { useSale } from '@/features/sales/api';
 import { ShareDialog } from '@/features/sales/ShareDialog';
-import { errorMessage } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
 import { cn, formatDateTime } from '@/lib/utils';
 
 export function SaleDetailPage() {
@@ -25,6 +27,9 @@ export function SaleDetailPage() {
   const customer = useCustomer(s?.customer_id ?? 0, s !== undefined).data;
   const [sharing, setSharing] = useState(params.get('share') === '1');
   const [dialog, setDialog] = useState<'pay' | 'return' | null>(params.get('return') === '1' ? 'return' : null);
+  const [editingReturn, setEditingReturn] = useState<SalesReturn | null>(null);
+  const navigate = useNavigate();
+  const rights = useDocRights(s);
 
   if (isPending) return <p>Loading…</p>;
   if (isError) return <FullPageMessage inline title="Sale not found" detail={errorMessage(error)} />;
@@ -59,6 +64,18 @@ export function SaleDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {rights.canEdit && (
+            <Button variant="outline" onClick={() => navigate(`/sales/${s.id}/edit`)}>
+              <Pencil /> Edit
+            </Button>
+          )}
+          {rights.canVoid && (
+            <VoidButton
+              url={`/api/sales/${s.id}/void`}
+              docNo={s.doc_no}
+              description={s.allocations?.some((a) => a.source_type === 'payment' && a.is_manual) ? 'Cash taken at the counter with it is voided too.' : undefined}
+            />
+          )}
           {canPay && (
             <Button variant="outline" onClick={() => setDialog('pay')} disabled={!customer}>
               <HandCoins /> Record payment
@@ -189,9 +206,28 @@ export function SaleDetailPage() {
               <CardContent>
                 <ul className="flex flex-col gap-1">
                   {s.returns.map((r) => (
-                    <li key={r.id}>
-                      <span className="font-mono font-semibold">{r.doc_no}</span> · {r.date} · {r.reason}
+                    <li key={r.id} className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono font-semibold">{r.doc_no}</span>
+                  {r.status === 'void' && <Badge variant="grey">VOID</Badge>}
+                  <span>
+                    · {r.date} · {r.reason}
+                  </span>
                       <span className="amount ml-2">{formatPaisa(r.total_paisa)}</span>
+                      {r.status === 'posted' && (can('documents.edit_any') || can('documents.edit_own_same_day')) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            api
+                              .get<{ sales_return: SalesReturn }>(`/api/sales-returns/${r.id}`)
+                              .then((x) => setEditingReturn(x.sales_return))
+                              .catch((e: unknown) => toast.error(errorMessage(e)))
+                          }
+                        >
+                          <Pencil /> Edit
+                        </Button>
+                      )}
+                      {r.status === 'posted' && can('documents.edit_any') && <VoidButton size="sm" url={`/api/sales-returns/${r.id}/void`} docNo={r.doc_no} description="Money paid back for it is voided too." />}
                     </li>
                   ))}
                 </ul>
@@ -223,6 +259,7 @@ export function SaleDetailPage() {
       {sharing && <ShareDialog sale={s} onClose={closeShare} />}
       {dialog === 'pay' && customer && <ReceivePaymentDialog customer={customer} saleId={s.id} onClose={closeDialog} />}
       {dialog === 'return' && canReturn && <SalesReturnDialog sale={s} onClose={closeDialog} />}
+      {editingReturn && <SalesReturnDialog sale={s} existing={editingReturn} onClose={() => setEditingReturn(null)} />}
     </div>
   );
 }

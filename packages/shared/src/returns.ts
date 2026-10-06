@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { businessDateSchema, listQuerySchema, reasonSchema } from './common';
+import { businessDateSchema, changeReasonSchema, listQuerySchema, reasonSchema } from './common';
 
 /** A sales return (credit note), started from the original invoice (CLAUDE.md 8.7). */
 export const createSalesReturnSchema = z
@@ -41,7 +41,9 @@ export const salesReturnSchema = z.object({
   profit_reversed_paisa: z.number().int().optional(),
   refunded_paisa: z.number().int(),
   status: z.enum(['posted', 'void']),
+  version: z.number().int(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   total_qty: z.number().int(),
   lines: z
@@ -79,3 +81,14 @@ export const purchaseReturnRowSchema = z.object({
   created_by_name: z.string().nullable(),
 });
 export type PurchaseReturnRow = z.infer<typeof purchaseReturnRowSchema>;
+
+/** Editing a sales return: its date, reason and quantities. Its refund is edited on its own. */
+export const updateSalesReturnSchema = z
+  .object({
+    date: businessDateSchema,
+    reason: reasonSchema,
+    lines: createSalesReturnSchema.shape.lines,
+    change_reason: changeReasonSchema,
+  })
+  .strict();
+export type UpdateSalesReturnInput = z.input<typeof updateSalesReturnSchema>;

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Balance, CustomerStatusBadge } from '@/components/badges';
 import { FullPageMessage } from '@/components/FullPageMessage';
 import { ReasonDialog } from '@/components/ReasonDialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ import { PaymentsTable } from '@/features/payments/PaymentsTable';
 import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnsTable } from '@/features/payments/SalesReturnsTable';
 import { WriteOffDialog } from '@/features/payments/WriteOffDialog';
+import { VoidButton } from '@/features/documents';
 import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
@@ -355,6 +357,7 @@ function WriteOffsCard({ c }: { c: Customer }) {
   const can = useCan();
   const { data } = useWriteOffs(c.id);
   const [reversing, setReversing] = useState<WriteOff | null>(null);
+  const [editing, setEditing] = useState<WriteOff | null>(null);
   if (!data || data.length === 0) return null;
   return (
     <Card className="mt-5">
@@ -368,11 +371,20 @@ function WriteOffsCard({ c }: { c: Customer }) {
             return (
               <li key={w.id} className="flex flex-wrap items-center gap-3">
                 <span className="font-mono font-semibold">{w.doc_no}</span>
+                {w.status === 'void' && <Badge variant="grey">VOID</Badge>}
                 <span>{w.date}</span>
                 <span className="text-muted-foreground">{w.reason}</span>
                 <span className="amount ml-auto">{formatPaisa(w.amount_paisa)}</span>
                 {w.reversed_paisa > 0 && <span className="text-sm text-green-800">{formatPaisa(w.reversed_paisa)} taken back</span>}
-                {can('write_offs.manage') && left > 0 && (
+                {can('write_offs.manage') && w.status === 'posted' && (
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(w)}>
+                    Edit
+                  </Button>
+                )}
+                {can('documents.edit_any') && w.status === 'posted' && (
+                  <VoidButton size="sm" url={`/api/write-offs/${w.id}/void`} docNo={w.doc_no} description="The customer owes the amount again; any reversals of it go too." />
+                )}
+                {can('write_offs.manage') && w.status === 'posted' && left > 0 && (
                   <Button variant="outline" size="sm" onClick={() => setReversing(w)}>
                     Customer paid — reverse
                   </Button>
@@ -382,6 +394,17 @@ function WriteOffsCard({ c }: { c: Customer }) {
           })}
         </ul>
       </CardContent>
+      {editing && (
+        <WriteOffDialog
+          mode="edit"
+          customerId={c.id}
+          customerName={c.name}
+          // Up to what the customer would owe without this write-off (reversals are already in the balance).
+          max={c.balance_paisa + editing.amount_paisa}
+          writeOff={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
       {reversing && (
         <WriteOffDialog mode="reverse" customerId={c.id} customerName={c.name} max={reversing.amount_paisa - reversing.reversed_paisa} writeOff={reversing} onClose={() => setReversing(null)} />
       )}

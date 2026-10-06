@@ -336,6 +336,8 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
   5. Recalculate allocations.
   6. Write **one audit row** containing both the before and after snapshots.
 - **Voiding** sets `status='void'` and removes the document's effects in the same way, with an audit row. The document stays visible, with a VOID stamp.
+- **What an edit keeps:** lines already on an invoice keep the price and cost they were sold at; newly added items use today's price and cost. Cash taken at the counter is its own receipt and is edited there.
+- **Linked documents:** voiding an invoice also voids the cash taken at the counter with it; voiding a sales return also voids money paid back for it. Invoices and purchases with posted returns cannot be edited or voided until the returns are voided.
 - **Who can edit or void:**
   - **Operators** can edit their own documents from the same day, with a reason.
   - **Owner and superuser** can edit or void any document, with a reason.
@@ -814,7 +816,7 @@ Update this checklist as phases are completed.
 - [x] Phase 4 — Sales: New Sale screen, customer search/add, size×color grid, customer discount % & profit, invoice PDF
 - [x] Phase 5 — Payments, allocation, sales returns, ledgers/statements, write-offs, bounced cheques
 - [x] Phase 6 — Payment terms & Overdue tab
-- [ ] Phase 7 — Editing/voiding + superuser Change History
+- [x] Phase 7 — Editing/voiding + superuser Change History
 - [ ] Phase 8 — Expenses & assets (owner+)
 - [ ] Phase 9 — Reports: customer, operational, financial/profit & dashboards
 - [ ] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)

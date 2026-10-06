@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { bpSchema, businessDateSchema, listQuerySchema, optionalText, reasonSchema } from './common';
+import { bpSchema, businessDateSchema, changeReasonSchema, listQuerySchema, optionalText, reasonSchema } from './common';
 
 export const purchaseLineInputSchema = z.object({
   variant_id: z.number().int().positive(),
@@ -76,6 +76,7 @@ export const purchaseSchema = z.object({
   status: z.enum(['posted', 'void']),
   version: z.number().int(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   item_count: z.number().int(),
   total_qty: z.number().int(),
@@ -106,7 +107,9 @@ export const purchaseReturnSchema = z.object({
   reason: z.string(),
   total_cost_paisa: z.number().int().optional(),
   status: z.enum(['posted', 'void']),
+  version: z.number().int(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   lines: z.array(
     z.object({
@@ -162,3 +165,18 @@ export const stockValuationRowSchema = z.object({
   stock_value_paisa: z.number().int(),
 });
 export type StockValuationRow = z.infer<typeof stockValuationRowSchema>;
+
+export const updatePurchaseSchema = z
+  .object({
+    supplier_id: z.number().int().positive(),
+    date: businessDateSchema,
+    supplier_ref: optionalText(60),
+    notes: optionalText(1000),
+    lines: z.array(purchaseLineInputSchema).min(1, 'Add at least one item').max(500),
+    change_reason: changeReasonSchema,
+  })
+  .strict();
+export type UpdatePurchaseInput = z.input<typeof updatePurchaseSchema>;
+
+export const updatePurchaseReturnSchema = createPurchaseReturnSchema.extend({ change_reason: changeReasonSchema }).strict();
+export type UpdatePurchaseReturnInput = z.input<typeof updatePurchaseReturnSchema>;

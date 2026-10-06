@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CUSTOMER_STATUSES, CUSTOMER_TYPES } from './customers';
 import { ALLOCATION_SOURCES } from './payments';
-import { bpSchema, businessDateSchema, listQuerySchema, nonNegativePaisaSchema, optionalText } from './common';
+import { bpSchema, businessDateSchema, changeReasonSchema, listQuerySchema, nonNegativePaisaSchema, optionalText } from './common';
 
 // --- Input -----------------------------------------------------------------------
 
@@ -223,6 +223,7 @@ export const saleSchema = z.object({
   notes: z.string().nullable(),
   approved_by_name: z.string().nullable(),
   created_at: z.string(),
+  created_by_id: z.number().int().nullable(),
   created_by_name: z.string().nullable(),
   item_count: z.number().int(),
   total_qty: z.number().int(),
@@ -233,3 +234,25 @@ export const saleSchema = z.object({
     .optional(),
 });
 export type Sale = z.infer<typeof saleSchema>;
+
+/**
+ * Editing a posted invoice (CLAUDE.md 8.6). Cash taken at the counter is its
+ * own receipt and is edited there, so it is not part of this.
+ */
+export const updateSaleSchema = z
+  .object({
+    customer_id: saleFields.customer_id,
+    date: saleFields.date,
+    payment_terms_days: saleFields.payment_terms_days,
+    notes: saleFields.notes,
+    lines: saleFields.lines,
+    extra_discount_paisa: saleFields.extra_discount_paisa,
+    expected_total_paisa: saleFields.expected_total_paisa,
+    change_reason: changeReasonSchema,
+    approval: approvalSchema.optional(),
+  })
+  .strict();
+export type UpdateSaleInput = z.input<typeof updateSaleSchema>;
+
+/** Live check while editing: like saleCheckSchema, against the invoice being edited. */
+export const saleEditCheckSchema = saleCheckSchema;

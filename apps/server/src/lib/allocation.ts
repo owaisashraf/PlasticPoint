@@ -184,15 +184,22 @@ export function removeAllocationsFromSource(tx: DbOrTx, sourceType: AllocationSo
 /**
  * What a customer still owes, oldest first (opening balance, then invoices),
  * and any advance not yet linked to anything. Used by the receipt screen.
+ * When a receipt is being edited, `excludePaymentId` leaves it out, so the
+ * invoices it pays show as owed again.
  */
-export function openItems(db: DbOrTx, customerId: number): OpenItems {
+export function openItems(db: DbOrTx, customerId: number, excludePaymentId?: number): OpenItems {
   const targets = loadTargets(db, customerId);
   const paid = new Map<string, number>();
   let allocatedTotal = 0;
   for (const a of db
     .select({ sale_id: payment_allocations.sale_id, amount: sql<number>`sum(${payment_allocations.amount_paisa})` })
     .from(payment_allocations)
-    .where(eq(payment_allocations.customer_id, customerId))
+    .where(
+      and(
+        eq(payment_allocations.customer_id, customerId),
+        excludePaymentId === undefined ? undefined : sql`NOT (${payment_allocations.source_type} = 'payment' AND ${payment_allocations.source_id} = ${excludePaymentId})`,
+      ),
+    )
     .groupBy(payment_allocations.sale_id)
     .all()) {
     paid.set(targetKey(a.sale_id), a.amount);
@@ -214,6 +221,8 @@ export function openItems(db: DbOrTx, customerId: number): OpenItems {
     })
     .filter((i) => i.outstanding_paisa > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.sale_id ?? 0) - (b.sale_id ?? 0));
-  const sourceTotal = loadSources(db, customerId).reduce((a, s) => a + s.amount_paisa, 0);
+  const sourceTotal = loadSources(db, customerId)
+    .filter((s) => !(s.source_type === 'payment' && s.source_id === excludePaymentId))
+    .reduce((a, s) => a + s.amount_paisa, 0);
   return { items, advance_paisa: sourceTotal - allocatedTotal };
 }
