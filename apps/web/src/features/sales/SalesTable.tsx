@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { OverdueBadge } from '@/features/overdue';
 import { useSales } from './api';
 
 /** Sales with search and date filters. With `customerId`, only that customer's invoices. */
@@ -75,7 +76,10 @@ export function SalesTable({ customerId }: { customerId?: number }) {
                 <td className="amount px-3 py-2">{s.total_qty}</td>
                 <td className="amount px-3 py-2 font-semibold">{formatPaisa(s.total_paisa)}</td>
                 <td className="amount px-3 py-2">{s.paid_paisa ? formatPaisa(s.paid_paisa) : '—'}</td>
-                <td className="amount px-3 py-2">{s.outstanding_paisa ? formatPaisa(s.outstanding_paisa) : <Badge variant="success">Paid</Badge>}</td>
+                <td className="amount px-3 py-2">
+                  {s.outstanding_paisa ? formatPaisa(s.outstanding_paisa) : <Badge variant="success">Paid</Badge>}
+                  <OverdueBadge days={s.days_overdue} className="ml-1" />
+                </td>
                 <td className="px-3 py-2 whitespace-nowrap">{s.due_date}</td>
                 {showProfit && (
                   <td className={cn('amount px-3 py-2', (s.profit_paisa ?? 0) < 0 && 'font-semibold text-destructive')}>{formatPaisa(s.profit_paisa ?? 0)}</td>

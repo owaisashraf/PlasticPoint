@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useCan, useClearSession, useMe } from '@/features/auth/useAuth';
+import { useOverdueCount } from '@/features/overdue';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { BackupFooter } from './BackupFooter';
@@ -25,6 +26,7 @@ export function AppShell() {
   const { pathname } = useLocation();
   const clearSession = useClearSession();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const overdueCount = useOverdueCount(can('overdue.view')).data ?? 0;
 
   const logout = useMutation({
     mutationFn: () => api.post('/api/auth/logout'),
@@ -77,6 +79,11 @@ export function AppShell() {
               >
                 <item.icon className="size-4 shrink-0" />
                 <span className="flex-1">{item.label}</span>
+                {item.countBadge === 'overdue' && overdueCount > 0 && (
+                  <span className="rounded-full bg-red-600 px-2 text-xs font-bold text-white" aria-label={`${overdueCount} overdue customers`}>
+                    {overdueCount}
+                  </span>
+                )}
                 {item.shortcut && <kbd className="text-xs opacity-70">{item.shortcut}</kbd>}
               </NavLink>
             ))}

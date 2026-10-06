@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCan } from '@/features/auth/useAuth';
 import { useCustomer } from '@/features/customers/api';
+import { OverdueBadge } from '@/features/overdue';
 import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnDialog } from '@/features/payments/SalesReturnDialog';
 import { useSale } from '@/features/sales/api';
@@ -96,6 +97,7 @@ export function SaleDetailPage() {
           <CardContent className="pt-4">
             <div className="text-sm text-muted-foreground">Outstanding</div>
             <div className="amount text-left text-xl font-bold">{s.outstanding_paisa ? formatPaisa(s.outstanding_paisa) : <Badge variant="success">Paid</Badge>}</div>
+            <OverdueBadge days={s.days_overdue} className="mt-1" />
           </CardContent>
         </Card>
       </div>

@@ -1,12 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–5 on a fresh database, in order:
+// A click-through of phases 1–6 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
 // share) → a below-cost sale needs the owner password → owner sees profit →
 // payments (FIFO), a return with refund, a bounced cheque and a write-off →
-// superuser verifies the audit log.
+// an overdue customer (badges, Overdue tab, report) → superuser verifies the
+// audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -309,6 +310,7 @@ test('7. operator sells to a new customer with a changed discount, takes cash an
 test('8. a below-cost discount needs the owner password', async ({ page }) => {
   await login(page, 'ali', PW.operator);
   await page.goto('/sales/new');
+  await expect(page.getByRole('heading', { name: 'New sale', exact: true })).toBeVisible();
   await page.keyboard.press('F2');
   await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Bilal');
   await page.getByRole('option', { name: /Bilal Traders/ }).click();
@@ -440,7 +442,68 @@ test('12. owner: a cheque bounces, then the debt is written off', async ({ page,
   await logout(page);
 });
 
-test('13. superuser verifies the audit log', async ({ page }) => {
+test('13. a back-dated invoice makes a customer overdue: badges, the Overdue tab and its report', async ({ page, context }) => {
+  // 60 days ago on 30-day terms → 30 days overdue (orange band).
+  const sixtyDaysAgo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date(Date.now() - 60 * 86_400_000));
+  await login(page, 'ali', PW.operator);
+  await expect(page.getByRole('navigation').getByLabel(/overdue customers/)).toHaveCount(0);
+  await page.goto('/sales/new');
+  await expect(page.getByRole('heading', { name: 'New sale', exact: true })).toBeVisible();
+  await page.keyboard.press('F2');
+  // A new customer with nothing paid. (With Bilal, his earlier receipt would
+  // pay this older invoice first — FIFO — and nothing would be overdue.)
+  await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Danish Store');
+  await page.getByRole('option', { name: /Add new customer/ }).click();
+  await page.getByRole('dialog').getByLabel('City').fill('Karachi');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add customer' }).click();
+  await expect(page.getByLabel('Customer', { exact: true })).toContainText('Danish Store');
+  await page.getByLabel('Date', { exact: true }).fill(sixtyDaysAgo);
+  await page.getByLabel('Item code').fill('B-101');
+  await page.getByLabel('Item code').press('Enter');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').fill('1');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').press('Control+Enter');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('heading', { name: /Invoice INV-000003/ })).toBeVisible();
+  await expect(page.getByText('Overdue · 30 days')).toBeVisible();
+
+  // Menu badge, then the Overdue tab.
+  // The count is part of the menu link's name ("Overdue 1 overdue customers").
+  await expect(page.getByRole('navigation').getByLabel('1 overdue customers')).toBeVisible();
+  await page.getByRole('navigation').getByRole('link', { name: /^Overdue/ }).click();
+  const row = page.getByRole('row', { name: /Danish Store/ });
+  await expect(row).toContainText('Rs 945');
+  await expect(row).toContainText('30');
+  await row.click();
+  await expect(page.getByRole('link', { name: 'INV-000003' })).toBeVisible();
+  await shot(page, '33-overdue-tab');
+
+  const [popup, pdf] = await Promise.all([
+    context.waitForEvent('page'),
+    context.waitForEvent('response', (r) => r.url().includes('/api/overdue/report.pdf')),
+    page.getByRole('button', { name: 'Print / PDF' }).click(),
+  ]);
+  expect(pdf.status()).toBe(200);
+  await popup.close();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^overdue-\d{4}-\d{2}-\d{2}\.csv$/);
+
+  // The customer search on New Sale shows the overdue badge, and the sale warns.
+  await page.goto('/sales/new');
+  await expect(page.getByRole('heading', { name: 'New sale', exact: true })).toBeVisible();
+  await page.keyboard.press('F2');
+  await page.getByPlaceholder('Name, shop, phone, city or code…').fill('Danish');
+  await expect(page.getByRole('option', { name: /Danish Store/ })).toContainText('Overdue Rs 945 · 30 days');
+  await shot(page, '34-picker-overdue-badge');
+  await page.getByRole('option', { name: /Danish Store/ }).click();
+  await page.getByLabel('Item code').fill('B-101');
+  await page.getByLabel('Item code').press('Enter');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').fill('1');
+  await page.getByRole('dialog').getByLabel('Red 10L quantity').press('Control+Enter');
+  await expect(page.getByText('Danish Store has an overdue invoice: Rs 945, up to 30 days late.')).toBeVisible();
+  await shot(page, '35-new-sale-overdue-warning');
+});
+
+test('14. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

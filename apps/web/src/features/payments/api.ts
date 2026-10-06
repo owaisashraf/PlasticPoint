@@ -3,6 +3,7 @@ import type { OpenItems, Payment, PaymentKind, SalesReturn, PurchaseReturnRow, W
 import { api } from '@/lib/api';
 import { CUSTOMERS_KEY } from '@/features/customers/api';
 import { PRODUCTS_KEY } from '@/features/products/api';
+import { OVERDUE_KEY } from '@/features/overdue';
 import { SALES_KEY } from '@/features/sales/api';
 
 export const PAYMENTS_KEY = ['payments'] as const;
@@ -67,7 +68,7 @@ export function useWriteOffs(customerId: number) {
 export function useRefreshAfterMoney() {
   const qc = useQueryClient();
   return () => {
-    for (const key of [PAYMENTS_KEY, RETURNS_KEY, SALES_KEY, CUSTOMERS_KEY, PRODUCTS_KEY, ['suppliers']]) void qc.invalidateQueries({ queryKey: key });
+    for (const key of [PAYMENTS_KEY, RETURNS_KEY, SALES_KEY, CUSTOMERS_KEY, PRODUCTS_KEY, OVERDUE_KEY, ['suppliers']]) void qc.invalidateQueries({ queryKey: key });
   };
 }
 

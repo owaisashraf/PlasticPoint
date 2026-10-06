@@ -20,6 +20,7 @@ import { WriteOffDialog } from '@/features/payments/WriteOffDialog';
 import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
+import { OverdueBadge } from '@/features/overdue';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 
@@ -127,6 +128,7 @@ export function CustomerDetailPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Balance">
           <Balance paisa={c.balance_paisa} className="text-xl" />
+          <OverdueBadge paisa={c.overdue_paisa} days={c.overdue_days} className="ml-2" />
         </Stat>
         <Stat label="Credit limit">
           {c.credit_limit_paisa ? (

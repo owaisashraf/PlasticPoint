@@ -96,6 +96,7 @@ export const SALE_ISSUE_KINDS = [
   'discount_needs_approval',
   'discount_warning',
   // everyone
+  'overdue',
   'stock_short',
   'bad_debt_credit',
   'credit_limit',
@@ -211,6 +212,8 @@ export const saleSchema = z.object({
   /** Σ allocations to this invoice (receipts, credit notes, write-offs). */
   paid_paisa: z.number().int(),
   outstanding_paisa: z.number().int(),
+  /** Days past the due date when overdue (after grace days); null otherwise. */
+  days_overdue: z.number().int().nullable(),
   /** Σ line profit. Owner+ only. */
   profit_paisa: z.number().int().optional(),
   /** Profit taken back by posted returns of this invoice. Owner+ only. */

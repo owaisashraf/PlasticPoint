@@ -26,6 +26,8 @@ export interface NavItem {
   /** Which build phase adds the screen. */
   phase: number;
   shortcut?: string;
+  /** Shows a red count (the Overdue menu). */
+  countBadge?: 'overdue';
 }
 
 /** Navigation from CLAUDE.md section 10, in order. */
@@ -37,7 +39,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/payments', label: 'Payments', icon: Wallet, permission: 'payments.view', phase: 5 },
   { to: '/returns', label: 'Returns', icon: ArrowLeftRight, permission: 'returns.view', phase: 5 },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'customers.view', phase: 2 },
-  { to: '/overdue', label: 'Overdue', icon: AlarmClock, permission: 'overdue.view', phase: 6 },
+  { to: '/overdue', label: 'Overdue', icon: AlarmClock, permission: 'overdue.view', phase: 6, countBadge: 'overdue' },
   { to: '/products', label: 'Products & Stock', icon: Package, permission: 'products.view', phase: 2 },
   { to: '/reports', label: 'Reports', icon: ChartColumn, permission: 'reports.operational', phase: 9 },
   { to: '/expenses', label: 'Expenses', icon: FileText, permission: 'expenses.manage', phase: 8 },

@@ -5,6 +5,7 @@ import { useDeferredValue, useState } from 'react';
 import { Balance, CustomerStatusBadge } from '@/components/badges';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useCan } from '@/features/auth/useAuth';
+import { OverdueBadge } from '@/features/overdue';
 import { useCustomers } from './api';
 import { CustomerFormDialog } from './CustomerFormDialog';
 
@@ -12,7 +13,7 @@ import { CustomerFormDialog } from './CustomerFormDialog';
  * Quick customer search (F2). Searches name, business name, phone, city and
  * code as you type, including parts of words. The last option is always
  * "+ Add new customer"; the new customer is then selected.
- * The overdue badge arrives in phase 6.
+ * Each result shows the balance, terms and any overdue or bad-debt badge.
  */
 export function CustomerPicker({
   open,
@@ -68,6 +69,7 @@ export function CustomerPicker({
                     <div className="flex items-center gap-2 font-semibold">
                       <span className="truncate">{c.name}</span>
                       <CustomerStatusBadge status={c.status} />
+                      <OverdueBadge paisa={c.overdue_paisa} days={c.overdue_days} />
                     </div>
                     <div className="truncate text-sm opacity-80">
                       {[c.code, c.business_name, c.city, formatPhone(c.phone)].filter(Boolean).join(' · ')}

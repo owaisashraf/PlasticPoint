@@ -35,6 +35,7 @@ import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, usePublicSettings } from '@/features/customers/api';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import { PRODUCTS_KEY } from '@/features/products/api';
+import { OVERDUE_KEY, OverdueBadge } from '@/features/overdue';
 import { ApprovalDialog } from '@/features/sales/ApprovalDialog';
 import { SALES_KEY } from '@/features/sales/api';
 import { api, ApiError, errorMessage } from '@/lib/api';
@@ -207,6 +208,7 @@ export function NewSalePage() {
       void qc.invalidateQueries({ queryKey: SALES_KEY });
       void qc.invalidateQueries({ queryKey: PRODUCTS_KEY });
       void qc.invalidateQueries({ queryKey: CUSTOMERS_KEY });
+      void qc.invalidateQueries({ queryKey: OVERDUE_KEY });
       toast.success(`Invoice ${sale.doc_no} saved.`);
       navigate(`/sales/${sale.id}${v.share ? '?share=1' : ''}`);
     },
@@ -291,9 +293,7 @@ export function NewSalePage() {
               <Balance paisa={customer.balance_paisa} />
             </Stat>
             <Stat label="Overdue">
-              <span className="text-muted-foreground" title="Overdue tracking arrives with the Overdue tab">
-                —
-              </span>
+              {customer.overdue_days > 0 ? <OverdueBadge paisa={customer.overdue_paisa} days={customer.overdue_days} className="text-sm" /> : <span className="text-muted-foreground">None</span>}
             </Stat>
             <Stat label="Credit limit">
               {customer.credit_limit_paisa ? (

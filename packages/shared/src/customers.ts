@@ -86,5 +86,11 @@ export const customerSchema = z.object({
   balance_paisa: z.number().int(),
   opening_balance_paisa: z.number().int(),
   opening_balance_date: z.string().nullable(),
+  /** Outstanding on overdue invoices (and an overdue opening balance). Computed, never stored. */
+  overdue_paisa: z.number().int(),
+  /** Largest days overdue; 0 when nothing is overdue. */
+  overdue_days: z.number().int(),
+  last_sale_date: z.string().nullable(),
+  last_payment_date: z.string().nullable(),
 });
 export type Customer = z.infer<typeof customerSchema>;

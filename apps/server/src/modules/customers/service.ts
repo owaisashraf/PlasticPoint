@@ -13,6 +13,7 @@ import { writeAudit, type AuditActor } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
 import { badRequest, notFound } from '../../lib/errors';
 import { recalcAllocations } from '../../lib/allocation';
+import { overdueSummaries, type OverdueSummary } from '../../lib/overdue';
 import { balanceColumnSql, getOpeningBalance, setOpeningBalance, statement } from '../../lib/ledger';
 import { nextCustomerCode } from '../../lib/numbering';
 import { getSetting } from '../settings/service';
@@ -22,15 +23,31 @@ type CreateInput = z.output<typeof createCustomerSchema>;
 type UpdateInput = z.output<typeof updateCustomerSchema>;
 
 const balanceCol = balanceColumnSql('customer');
+// Outer columns are written with their table name: a bare "id" inside a
+// subquery would bind to the subquery's own table.
+const lastSaleSql = sql<string | null>`(SELECT max(s.date) FROM sales s WHERE s.customer_id = "customers"."id" AND s.status = 'posted')`;
+const lastPaymentSql = sql<string | null>`(SELECT max(p.date) FROM payments p WHERE p.party_type = 'customer' AND p.party_id = "customers"."id" AND p.kind = 'receipt' AND p.status = 'posted')`;
+const listSelect = { c: customers, balance: balanceCol, last_sale: lastSaleSql, last_payment: lastPaymentSql };
 
-function toCustomer(db: DbOrTx, row: CustomerRow, balance: number): Customer {
-  const opening = getOpeningBalance(db, 'customer', row.id);
-  const { created_by: _cb, ...rest } = row;
+interface ListRow {
+  c: CustomerRow;
+  balance: number;
+  last_sale: string | null;
+  last_payment: string | null;
+}
+
+function toCustomer(db: DbOrTx, r: ListRow, overdue: OverdueSummary | undefined): Customer {
+  const opening = getOpeningBalance(db, 'customer', r.c.id);
+  const { created_by: _cb, ...rest } = r.c;
   return {
     ...rest,
-    balance_paisa: balance,
+    balance_paisa: r.balance,
     opening_balance_paisa: opening.amount_paisa,
     opening_balance_date: opening.date,
+    overdue_paisa: overdue?.overdue_paisa ?? 0,
+    overdue_days: overdue?.max_days_overdue ?? 0,
+    last_sale_date: r.last_sale,
+    last_payment_date: r.last_payment,
   };
 }
 
@@ -47,15 +64,15 @@ function loadRow(db: DbOrTx, id: number): CustomerRow {
 }
 
 export function getCustomer(db: DbOrTx, id: number): Customer {
-  const row = db.select({ c: customers, balance: balanceCol }).from(customers).where(eq(customers.id, id)).get();
+  const row = db.select(listSelect).from(customers).where(eq(customers.id, id)).get();
   if (!row) throw notFound('Customer not found.');
-  return toCustomer(db, row.c, row.balance);
+  return toCustomer(db, row, overdueSummaries(db, { customerIds: [id] }).get(id));
 }
 
 // --- Search --------------------------------------------------------------------
 
 /** Turns "Ahmed 0300-12" into conditions: trigram FTS for 3+ characters, LIKE for shorter words. */
-function searchCondition(q: string): SQL | undefined {
+export function searchCondition(q: string): SQL | undefined {
   const words = q
     .split(/\s+/)
     .map((w) => (/^[\d+()-]+$/.test(w) ? w.replace(/[^\d+]/g, '') : w))
@@ -86,14 +103,15 @@ export function listCustomers(db: DB, query: CustomerListQuery & { limit: number
 
   const total = db.select({ n: sql<number>`count(*)` }).from(customers).where(where).get()?.n ?? 0;
   const rows = db
-    .select({ c: customers, balance: balanceCol })
+    .select(listSelect)
     .from(customers)
     .where(where)
     .orderBy(asc(customers.name), asc(customers.id))
     .limit(query.limit)
     .offset(query.offset)
     .all();
-  return { customers: rows.map((r) => toCustomer(db, r.c, r.balance)), total };
+  const overdue = overdueSummaries(db, { customerIds: rows.map((r) => r.c.id) });
+  return { customers: rows.map((r) => toCustomer(db, r, overdue.get(r.c.id))), total };
 }
 
 /** Distinct cities, for the list filter. */

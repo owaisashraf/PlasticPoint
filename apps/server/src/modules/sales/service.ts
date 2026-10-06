@@ -17,6 +17,7 @@ import type { z } from 'zod';
 import { writeTx, type DB, type DbOrTx } from '../../db/client';
 import { customers, ledger_entries, payment_allocations, payments, product_variants, products, sale_items, sales, sales_return_items, sales_returns, users } from '../../db/schema';
 import { recalcAllocations } from '../../lib/allocation';
+import { daysPastDueSql, overdueSummaries } from '../../lib/overdue';
 import { writeAudit, type AuditActor } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
 import { badRequest, conflict, notFound } from '../../lib/errors';
@@ -27,7 +28,7 @@ import { addDaysToDate, defaultDiscountBp, pricingRuleHits, saleLineAmounts, typ
 import { computeSale, profitBp, saleUnitCost, type CostSource, type SaleLineResult } from '../../lib/profit';
 import { postMovement, recomputeAverageCosts, stockOnHandMany } from '../../lib/stock';
 import { auditActor } from '../auth/service';
-import { getSettings } from '../settings/service';
+import { getSetting, getSettings } from '../settings/service';
 
 type CreateInput = z.output<typeof createSaleSchema>;
 type CheckInput = z.output<typeof saleCheckSchema>;
@@ -188,6 +189,15 @@ export function evaluateSale(db: DbOrTx, user: SessionUser, input: CheckInput): 
     const cash = input.cash_received_paisa;
     if (customer.status === 'bad_debt' && cash < total) {
       issues.push({ kind: 'bad_debt_credit', severity: 'approval', line_index: null, message: `${customer.name} is marked as bad debt. A credit sale needs owner approval; a fully paid cash sale does not.` });
+    }
+    const overdue = overdueSummaries(db, { customerIds: [customer.id] }).get(customer.id);
+    if (overdue) {
+      issues.push({
+        kind: 'overdue',
+        severity: 'warning',
+        line_index: null,
+        message: `${customer.name} has ${overdue.overdue_count === 1 ? 'an overdue invoice' : `${overdue.overdue_count} overdue invoices`}: ${formatPaisa(overdue.overdue_paisa)}, up to ${overdue.max_days_overdue} days late.`,
+      });
     }
     if (customer.credit_limit_paisa > 0) {
       const after = partyBalance(db, 'customer', customer.id) + total - cash;
@@ -485,19 +495,22 @@ interface HeaderRow {
   returned_profit: number;
   item_count: number;
   total_qty: number;
+  days_past_due: number;
 }
 
 function headerQuery(db: DbOrTx) {
   return db
-    .select(headerSelect)
+    .select({ ...headerSelect, days_past_due: daysPastDueSql(sql`${sales.due_date}`, businessToday()) })
     .from(sales)
     .innerJoin(customers, eq(customers.id, sales.customer_id))
     .leftJoin(createdBy, eq(createdBy.id, sales.created_by))
     .leftJoin(approvedBy, eq(approvedBy.id, sales.approved_by));
 }
 
-function toSale(r: HeaderRow): Sale {
+/** `grace`: settings.grace_days. Overdue = posted, outstanding > 0 and past due by more than the grace days. */
+function toSale(r: HeaderRow, grace: number): Sale {
   const { s, c } = r;
+  const outstanding = s.status === 'posted' ? s.total_paisa - r.paid : 0;
   return {
     id: s.id,
     doc_no: s.doc_no,
@@ -519,7 +532,8 @@ function toSale(r: HeaderRow): Sale {
     tax_paisa: s.tax_paisa,
     total_paisa: s.total_paisa,
     paid_paisa: r.paid,
-    outstanding_paisa: s.status === 'posted' ? s.total_paisa - r.paid : 0,
+    outstanding_paisa: outstanding,
+    days_overdue: outstanding > 0 && r.days_past_due > grace ? r.days_past_due : null,
     profit_paisa: s.status === 'posted' ? r.profit : 0,
     returned_profit_paisa: s.status === 'posted' ? r.returned_profit : 0,
     status: s.status,
@@ -582,7 +596,7 @@ function loadLines(db: DbOrTx, saleId: number): SaleLine[] {
 export function getSale(db: DbOrTx, id: number): Sale {
   const r = headerQuery(db).where(eq(sales.id, id)).get();
   if (!r) throw notFound('Sale not found.');
-  return { ...toSale(r), lines: loadLines(db, id), allocations: saleAllocations(db, id), returns: saleReturns(db, id) };
+  return { ...toSale(r, getSetting(db, 'grace_days')), lines: loadLines(db, id), allocations: saleAllocations(db, id), returns: saleReturns(db, id) };
 }
 
 /** Receipts, credit notes and write-offs that reduced this invoice. */
@@ -632,7 +646,8 @@ export function listSales(db: DB, q: ListQuery): { sales: Sale[]; total: number 
   const where = and(...conds);
   const total = db.select({ n: sql<number>`count(*)` }).from(sales).innerJoin(customers, eq(customers.id, sales.customer_id)).where(where).get()?.n ?? 0;
   const rows = headerQuery(db).where(where).orderBy(desc(sales.date), desc(sales.id)).limit(q.limit).offset(q.offset).all();
-  return { sales: rows.map(toSale), total };
+  const grace = getSetting(db, 'grace_days');
+  return { sales: rows.map((r) => toSale(r, grace)), total };
 }
 
 /**

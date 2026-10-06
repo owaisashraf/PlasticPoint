@@ -10,6 +10,7 @@ import { useCan } from '@/features/auth/useAuth';
 import { useCities, useCustomers } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
+import { OverdueBadge } from '@/features/overdue';
 import { errorMessage } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
 
@@ -84,6 +85,9 @@ export function CustomersPage() {
               <th className="px-3 py-2 text-right">Terms</th>
               <th className="px-3 py-2 text-right">Credit limit</th>
               <th className="px-3 py-2 text-right">Balance</th>
+              <th className="px-3 py-2">Overdue</th>
+              <th className="px-3 py-2">Last sale</th>
+              <th className="px-3 py-2">Last payment</th>
             </tr>
           </thead>
           <tbody>
@@ -110,11 +114,16 @@ export function CustomersPage() {
                 <td className="px-3 py-2 text-right">
                   <Balance paisa={c.balance_paisa} />
                 </td>
+                <td className="px-3 py-2">
+                  <OverdueBadge paisa={c.overdue_paisa} days={c.overdue_days} />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm">{c.last_sale_date ?? '—'}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm">{c.last_payment_date ?? '—'}</td>
               </tr>
             ))}
             {list.data && list.data.customers.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground">
                   No customers found.
                 </td>
               </tr>
@@ -130,7 +139,6 @@ export function CustomersPage() {
               Show more
             </Button>
           )}
-          <span>Overdue amounts and last sale/payment dates appear here once sales and payments are built.</span>
         </div>
       )}
 

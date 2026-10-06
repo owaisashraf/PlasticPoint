@@ -314,6 +314,7 @@ Before saying a task is done, always run `npm run typecheck` and `npm test`. Bot
 - **Overdue** (invoice) = `status='posted'` AND outstanding > 0 AND `businessToday() > due_date + grace_days`.
 - **Days overdue** = `businessToday() − due_date`.
 - **Overdue** (customer) = the customer has at least one overdue invoice.
+- An owed **opening balance** is due like an invoice dated on its date: opening date + the customer's payment terms. (Set the opening date to the oldest unpaid bill's date to make old debt overdue at once.)
 - Overdue status is **always computed with SQL queries**, never stored.
 
 ### 8.5 Allocation
@@ -812,7 +813,7 @@ Update this checklist as phases are completed.
 - [x] Phase 3 — Purchases (price − supplier margin = cost), purchase returns, stock & average cost
 - [x] Phase 4 — Sales: New Sale screen, customer search/add, size×color grid, customer discount % & profit, invoice PDF
 - [x] Phase 5 — Payments, allocation, sales returns, ledgers/statements, write-offs, bounced cheques
-- [ ] Phase 6 — Payment terms & Overdue tab
+- [x] Phase 6 — Payment terms & Overdue tab
 - [ ] Phase 7 — Editing/voiding + superuser Change History
 - [ ] Phase 8 — Expenses & assets (owner+)
 - [ ] Phase 9 — Reports: customer, operational, financial/profit & dashboards
