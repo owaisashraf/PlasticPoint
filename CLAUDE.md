@@ -433,6 +433,8 @@ Each product has **one price**. Every percentage is taken off that price.
 - **Straight-line depreciation:**
   - Monthly amount = (cost − salvage) ÷ useful_life_months.
   - It starts from the month after purchase and stops when fully depreciated or disposed.
+  - Each month's charge counts on the last day of that month, so nothing is charged for the purchase month or for a month in which the asset is disposed of before its last day.
+  - The remainder of the division is spread over the first months, so the charges add up exactly to cost − salvage.
   - It is calculated by `lib/depreciation.ts`, never stored.
 - **Book value** on any date = cost − accumulated depreciation up to that date.
 - **Disposal:** gain or loss = disposal amount − book value on the disposal date. This goes into net profit.
@@ -817,7 +819,7 @@ Update this checklist as phases are completed.
 - [x] Phase 5 — Payments, allocation, sales returns, ledgers/statements, write-offs, bounced cheques
 - [x] Phase 6 — Payment terms & Overdue tab
 - [x] Phase 7 — Editing/voiding + superuser Change History
-- [ ] Phase 8 — Expenses & assets (owner+)
+- [x] Phase 8 — Expenses & assets (owner+)
 - [ ] Phase 9 — Reports: customer, operational, financial/profit & dashboards
 - [ ] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)
 - [ ] Phase 11 — Packaging, install scripts, seed data, user guide, move-to-laptop test

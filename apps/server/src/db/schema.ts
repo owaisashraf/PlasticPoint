@@ -685,3 +685,89 @@ export const write_off_reversals = sqliteTable(
     check('write_off_reversals_amount_ck', sql`${t.amount_paisa} > 0`),
   ],
 );
+
+// --- Expenses and assets (CLAUDE.md 8.12, 8.13) -------------------------------------
+
+/** Kinds of expense (Rent, Salaries...). Managed in Settings; deactivated, never deleted once used. */
+export const expense_categories = sqliteTable(
+  'expense_categories',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    name: text().notNull(),
+    active: integer({ mode: 'boolean' }).notNull().default(true),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [uniqueIndex('expense_categories_name_uq').on(sql`lower(${t.name})`)],
+);
+
+/** Money spent running the business. It reduces net profit; it never touches customer or supplier ledgers. */
+export const expenses = sqliteTable(
+  'expenses',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    date: text().notNull(),
+    category_id: integer()
+      .notNull()
+      .references(() => expense_categories.id),
+    amount_paisa: integer().notNull(),
+    method: text({ enum: ['cash', 'bank'] }).notNull(),
+    paid_to: text(),
+    reference: text(),
+    notes: text(),
+    status: text({ enum: ['posted', 'void'] }).notNull().default('posted'),
+    version: integer().notNull().default(1),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('expenses_doc_no_uq').on(t.doc_no),
+    index('expenses_date_idx').on(t.date),
+    index('expenses_category_idx').on(t.category_id),
+    check('expenses_amount_ck', sql`${t.amount_paisa} > 0`),
+  ],
+);
+
+/**
+ * Things the business owns and uses for more than a year. Not an expense:
+ * its depreciation (worked out by lib/depreciation.ts, never stored) reduces
+ * net profit, and a disposal gives a gain or loss.
+ */
+export const assets = sqliteTable(
+  'assets',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    doc_no: text().notNull(),
+    name: text().notNull(),
+    category: text({ enum: ['furniture', 'equipment', 'computer', 'vehicle', 'other'] }).notNull(),
+    purchase_date: text().notNull(),
+    cost_paisa: integer().notNull(),
+    method: text({ enum: ['cash', 'bank'] }).notNull(),
+    vendor: text(),
+    depreciation_method: text({ enum: ['none', 'straight_line'] }).notNull(),
+    useful_life_months: integer(),
+    salvage_value_paisa: integer().notNull().default(0),
+    disposal_date: text(),
+    disposal_amount_paisa: integer(),
+    disposal_method: text({ enum: ['cash', 'bank'] }),
+    disposal_reason: text(),
+    status: text({ enum: ['active', 'disposed', 'void'] }).notNull().default('active'),
+    version: integer().notNull().default(1),
+    notes: text(),
+    created_by: integer().references(() => users.id),
+    updated_by: integer().references(() => users.id),
+    created_at: text().notNull().default(nowIso),
+    updated_at: text().notNull().default(nowIso),
+  },
+  (t) => [
+    uniqueIndex('assets_doc_no_uq').on(t.doc_no),
+    index('assets_purchase_date_idx').on(t.purchase_date),
+    check('assets_cost_ck', sql`${t.cost_paisa} > 0`),
+    check('assets_salvage_ck', sql`${t.salvage_value_paisa} >= 0 AND ${t.salvage_value_paisa} <= ${t.cost_paisa}`),
+    check('assets_life_ck', sql`${t.useful_life_months} IS NULL OR ${t.useful_life_months} > 0`),
+    check('assets_disposal_ck', sql`${t.disposal_amount_paisa} IS NULL OR ${t.disposal_amount_paisa} >= 0`),
+  ],
+);

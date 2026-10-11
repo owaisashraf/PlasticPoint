@@ -75,7 +75,10 @@ function totalOf(entity: string, s: Snap | null): number | null {
       return num(s.total_cost_paisa);
     case 'payment':
     case 'write_off':
+    case 'expense':
       return num(s.amount_paisa);
+    case 'asset':
+      return num(s.cost_paisa);
     default:
       return null;
   }
@@ -100,7 +103,7 @@ function balanceEffect(entity: string, s: Snap | null): number {
   }
 }
 
-const HAS_TOTAL = new Set(['sale', 'sales_return', 'purchase', 'purchase_return', 'payment', 'write_off']);
+const HAS_TOTAL = new Set(['sale', 'sales_return', 'purchase', 'purchase_return', 'payment', 'write_off', 'expense', 'asset']);
 
 function partyNames(db: DbOrTx, rows: { before: Snap | null; after: Snap | null }[]) {
   const custIds = new Set<number>();

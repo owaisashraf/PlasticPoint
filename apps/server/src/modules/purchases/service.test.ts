@@ -11,9 +11,10 @@ let supplierId: number;
 let product: Product;
 
 beforeEach(async () => {
-  t = await createTestContext();
+  // The clock is set first: sessions created at login expire after 12 idle hours.
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-05T06:00:00Z'));
+  t = await createTestContext();
   supplierId = (await call('owner', 'POST', '/api/suppliers', { name: 'Popular Plastics' })).json().supplier.id;
   product = (
     await call('owner', 'POST', '/api/products', {

@@ -50,6 +50,13 @@
       "when": 1791241804522,
       "tag": "0006_payments_returns",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791756271540,
+      "tag": "0007_expenses_assets",
+      "breakpoints": true
     }
   ]
 }

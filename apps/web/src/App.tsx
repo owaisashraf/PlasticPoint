@@ -18,6 +18,9 @@ import { NewPurchasePage } from './routes/purchases/NewPurchasePage';
 import { PurchaseDetailPage } from './routes/purchases/PurchaseDetailPage';
 import { PurchasesPage } from './routes/purchases/PurchasesPage';
 import { EditPurchasePage } from './routes/purchases/NewPurchasePage';
+import { AssetDetailPage } from './routes/assets/AssetDetailPage';
+import { AssetsPage } from './routes/assets/AssetsPage';
+import { ExpensesPage } from './routes/expenses/ExpensesPage';
 import { OverduePage } from './routes/overdue/OverduePage';
 import { PaymentsPage } from './routes/payments/PaymentsPage';
 import { ReturnsPage } from './routes/returns/ReturnsPage';
@@ -38,6 +41,8 @@ const BUILT_PAGES: Record<string, ReactNode> = {
   '/payments': <PaymentsPage />,
   '/returns': <ReturnsPage />,
   '/overdue': <OverduePage />,
+  '/expenses': <ExpensesPage />,
+  '/assets': <AssetsPage />,
   '/change-history': <ChangeHistoryPage />,
 };
 
@@ -105,6 +110,14 @@ export function App() {
           element={
             <Guard permission="products.view">
               <ProductDetailPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/assets/:id"
+          element={
+            <Guard permission="assets.manage">
+              <AssetDetailPage />
             </Guard>
           }
         />

@@ -1,13 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–7 on a fresh database, in order:
+// A click-through of phases 1–8 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
 // share) → a below-cost sale needs the owner password → owner sees profit →
 // payments (FIFO), a return with refund, a bounced cheque and a write-off →
 // an overdue customer (badges, Overdue tab, report) → owner edits an invoice →
-// superuser reviews the diff in Change History and verifies the audit log.
+// superuser reviews the diff in Change History → owner records expenses and an
+// asset → superuser verifies the audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -551,7 +552,61 @@ test('15. the superuser sees the edit and its diff in Change History, and review
   await expect(page.getByRole('row', { name: /Edited.*INV-000003/ }).getByLabel('Reviewed')).toBeVisible();
 });
 
-test('16. superuser verifies the audit log', async ({ page }) => {
+test('16. owner records expenses and an asset, and manages expense categories', async ({ page }) => {
+  await login(page, 'owner', PW.owner);
+  await nav(page, 'Expenses').click();
+  await expect(page.getByRole('heading', { name: 'Expenses', exact: true })).toBeVisible();
+  await page.getByLabel('Category').first().selectOption({ label: 'Rent' });
+  await page.getByLabel('Amount', { exact: true }).fill('25000');
+  await page.getByLabel('Paid to').first().fill('Landlord');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByText('EXP-000001 saved: Rent Rs 25,000.')).toBeVisible();
+  // Ready for the next one: amount cleared, category kept.
+  await expect(page.getByLabel('Amount', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Category').first()).toHaveValue(/\d+/);
+  await page.getByLabel('Category').first().selectOption({ label: 'Electricity & gas' });
+  await page.getByLabel('Amount', { exact: true }).fill('4500');
+  await page.getByLabel('Paid by').first().selectOption('bank');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByText('EXP-000002 saved: Electricity & gas Rs 4,500.')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'EXP-000002' })).toBeVisible();
+  await expect(page.getByText('Rs 29,500').first()).toBeVisible();
+  await shot(page, '39-expenses');
+
+  // An asset bought about nine months ago, depreciated over a year.
+  const bought = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date(Date.now() - 270 * 86_400_000));
+  await nav(page, 'Assets').click();
+  await page.getByRole('button', { name: 'Add asset' }).click();
+  const ad = page.getByRole('dialog');
+  await ad.getByLabel('Name').fill('Dell laptop');
+  await ad.getByLabel('Type').selectOption('computer');
+  await ad.getByLabel('Purchase date').fill(bought);
+  await ad.getByLabel('Cost').fill('120000');
+  await ad.getByLabel('Useful life (months)').fill('12');
+  await expect(ad.getByText('About Rs 10,000 a month')).toBeVisible();
+  await ad.getByRole('button', { name: 'Add asset' }).click();
+  await expect(page.getByRole('heading', { name: 'Dell laptop' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Depreciation schedule' })).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(13); // header + 12 months
+  await shot(page, '40-asset-schedule');
+  await page.getByRole('button', { name: 'Dispose' }).click();
+  await page.getByRole('dialog').getByLabel('Amount received').fill('50000');
+  await page.getByRole('dialog').getByLabel('Reason').fill('Sold to a staff member');
+  await page.getByRole('dialog').getByRole('button', { name: 'Dispose' }).click();
+  await expect(page.getByText(/AST-000001 disposed of: (gain|loss) Rs/)).toBeVisible();
+  await expect(page.getByText(/(Gain|Loss) on disposal/)).toBeVisible();
+
+  await nav(page, 'Settings').click();
+  await page.getByRole('tab', { name: 'Expense categories' }).click();
+  await page.getByLabel('New category name').fill('Tea & refreshments');
+  await page.getByRole('button', { name: 'Add' }).click();
+  await expect(page.getByText('Tea & refreshments')).toBeVisible();
+  await expect(page.getByRole('row', { name: /Rent/ })).toContainText('1 expense');
+  await shot(page, '41-expense-categories');
+  await logout(page);
+});
+
+test('17. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

@@ -14,6 +14,7 @@ import { useCan } from '@/features/auth/useAuth';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { BackupsPanel } from './BackupsPanel';
+import { ExpenseCategoriesPanel } from './ExpenseCategoriesPanel';
 import { SECTIONS, type FieldDef } from './fields';
 import { UsersPanel } from './UsersPanel';
 
@@ -111,6 +112,7 @@ export function SettingsPage() {
   const tabs = useMemo(
     () => [
       ...SECTIONS.map((s) => ({ id: s.id, title: s.title })),
+      ...(can('expenses.manage') ? [{ id: 'expense_categories', title: 'Expense categories' }] : []),
       ...(can('users.manage_operators') ? [{ id: 'users', title: 'Users' }] : []),
     ],
     [can],
@@ -119,7 +121,7 @@ export function SettingsPage() {
   if (settings.isPending) return <p>Loading settings…</p>;
   if (settings.isError) return <p className="text-destructive">{errorMessage(settings.error)}</p>;
 
-  const isSettingsTab = tab !== 'users';
+  const isSettingsTab = tab !== 'users' && tab !== 'expense_categories';
   return (
     <div className="max-w-4xl">
       <PageHeader
@@ -172,6 +174,11 @@ export function SettingsPage() {
             {s.id === 'backups' && can('backups.manage') && <BackupsPanel />}
           </TabsContent>
         ))}
+        {can('expenses.manage') && (
+          <TabsContent value="expense_categories">
+            <ExpenseCategoriesPanel />
+          </TabsContent>
+        )}
         {can('users.manage_operators') && (
           <TabsContent value="users">
             <UsersPanel />

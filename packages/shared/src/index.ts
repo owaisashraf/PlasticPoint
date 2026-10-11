@@ -18,3 +18,4 @@ export * from './sales';
 export * from './returns';
 export * from './overdue';
 export * from './changelog';
+export * from './expenses';

@@ -138,9 +138,10 @@ describe('login and logout', () => {
   });
 
   it('sessions expire after 12 hours idle, and activity keeps them alive', async () => {
-    t = await createTestContext();
+    // The clock is set before logging in, so the test does not depend on today's date.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-05T04:00:00Z'));
+    t = await createTestContext();
     const cookie = await t.cookie('operator');
     const me = () => t.app.inject({ method: 'GET', url: '/api/me', headers: { cookie } });
 
