@@ -3,12 +3,14 @@ import {
   DEFAULT_SETTINGS,
   PUBLIC_SETTING_KEYS,
   RESTART_SETTING_KEYS,
+  SECRET_SETTING_KEYS,
   SETTING_KEYS,
   settingsSchema,
   validateSettings,
   type PublicSettings,
   type SettingKey,
   type Settings,
+  type SettingsView,
 } from '@shopledger/shared';
 import { writeTx, type DB, type DbOrTx } from '../../db/client';
 import { settings } from '../../db/schema';
@@ -47,8 +49,24 @@ export function getPublicSettings(db: DbOrTx): PublicSettings {
   return out as PublicSettings;
 }
 
+/** Settings for the Settings screen: secrets (the WhatsApp token) are blanked, with a flag saying whether each is set. */
+export function settingsView(s: Settings): SettingsView {
+  const out = { ...s } as Record<string, unknown>;
+  const secrets_set = {} as SettingsView['secrets_set'];
+  for (const k of SECRET_SETTING_KEYS) {
+    secrets_set[k] = Boolean(s[k]);
+    out[k] = '';
+  }
+  return { ...(out as Settings), secrets_set };
+}
+
+/** A secret as the audit log records it: never the value itself. */
+function auditValue(key: SettingKey, value: unknown): unknown {
+  return (SECRET_SETTING_KEYS as readonly string[]).includes(key) ? (value ? '(hidden)' : '(none)') : value;
+}
+
 export interface UpdateSettingsResult {
-  settings: Settings;
+  settings: SettingsView;
   changed: SettingKey[];
   restart_required: boolean;
 }
@@ -62,7 +80,7 @@ export function updateSettings(db: DB, actor: AuditActor, changes: Partial<Setti
     if (errors.length) throw badRequest(errors.join(' '));
 
     const changed = SETTING_KEYS.filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
-    if (changed.length === 0) return { settings: before, changed, restart_required: false };
+    if (changed.length === 0) return { settings: settingsView(before), changed, restart_required: false };
 
     const now = nowIso();
     const toDefault = changed.filter((k) => JSON.stringify(after[k]) === JSON.stringify(DEFAULT_SETTINGS[k]));
@@ -76,7 +94,7 @@ export function updateSettings(db: DB, actor: AuditActor, changes: Partial<Setti
         .run();
     }
 
-    const pick = (s: Settings) => Object.fromEntries(changed.map((k) => [k, s[k]]));
+    const pick = (s: Settings) => Object.fromEntries(changed.map((k) => [k, auditValue(k, s[k])]));
     const priceKeys: SettingKey[] = [
       'default_supplier_margin_bp',
       'default_customer_discount_bp',
@@ -94,7 +112,7 @@ export function updateSettings(db: DB, actor: AuditActor, changes: Partial<Setti
     });
 
     return {
-      settings: after,
+      settings: settingsView(after),
       changed,
       restart_required: changed.some((k) => RESTART_SETTING_KEYS.includes(k)),
     };

@@ -27,6 +27,8 @@ import { paymentRoutes } from './modules/payments/routes';
 import { reportRoutes } from './modules/reports/routes';
 import { returnRoutes } from './modules/returns/routes';
 import { saleRoutes } from './modules/sales/routes';
+import { whatsappRoutes } from './modules/whatsapp/routes';
+import type { FolderOpener } from './modules/whatsapp/service';
 import { writeOffRoutes } from './modules/write-offs/routes';
 import { getSetting } from './modules/settings/service';
 import { settingsRoutes } from './modules/settings/routes';
@@ -38,6 +40,10 @@ export interface AppContext {
   config: AppConfig;
   dbh: DbHolder;
   backups: BackupService;
+  /** WhatsApp Cloud API calls (tests inject a fake; they never reach the network). */
+  whatsappFetch?: typeof fetch;
+  /** Opens Explorer at a saved PDF; null where that is not possible. Defaults to Explorer on Windows. */
+  folderOpener?: FolderOpener | null;
 }
 
 export interface RouteInfo {
@@ -151,6 +157,7 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
   await assetRoutes(app);
   await reportRoutes(app);
   await stockRoutes(app);
+  await whatsappRoutes(app);
 
   if (ctx.config.webDistDir) {
     await app.register(fastifyStatic, {

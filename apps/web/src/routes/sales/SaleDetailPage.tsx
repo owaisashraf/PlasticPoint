@@ -16,6 +16,7 @@ import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnDialog } from '@/features/payments/SalesReturnDialog';
 import { useSale } from '@/features/sales/api';
 import { ShareDialog } from '@/features/sales/ShareDialog';
+import { LastSent, useWhatsAppHistory } from '@/features/whatsapp/WhatsApp';
 import { api, errorMessage } from '@/lib/api';
 import { cn, formatDateTime } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ export function SaleDetailPage() {
   const [editingReturn, setEditingReturn] = useState<SalesReturn | null>(null);
   const navigate = useNavigate();
   const rights = useDocRights(s);
+  const shared = useWhatsAppHistory({ sale_id: id }, can('whatsapp.send'));
 
   if (isPending) return <p>Loading…</p>;
   if (isError) return <FullPageMessage inline title="Sale not found" detail={errorMessage(error)} />;
@@ -62,6 +64,7 @@ export function SaleDetailPage() {
             {s.date} · due {s.due_date} ({s.payment_terms_days} days) · entered by {s.created_by_name ?? '—'} on {formatDateTime(s.created_at)}
             {s.approved_by_name && ` · approved by ${s.approved_by_name}`}
           </p>
+          <LastSent entries={shared.data} kind="invoice" />
         </div>
         <div className="flex flex-wrap gap-2">
           {rights.canEdit && (

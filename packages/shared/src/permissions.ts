@@ -27,6 +27,7 @@ export const PERMISSION_KEYS = [
   'overdue.view',
   'reports.operational',
   'documents.edit_own_same_day',
+  'whatsapp.send',
 
   // Owner and superuser
   'documents.edit_any',
@@ -71,6 +72,7 @@ const OPERATOR_KEYS: readonly KnownPermission[] = [
   'overdue.view',
   'reports.operational',
   'documents.edit_own_same_day',
+  'whatsapp.send',
 ];
 
 const OWNER_KEYS: readonly KnownPermission[] = [

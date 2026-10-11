@@ -14,6 +14,7 @@ import { useCities } from '@/features/customers/api';
 import { BAND_BADGE, BAND_ROW, OVERDUE_KEY, useOverdueBand } from '@/features/overdue';
 import { openStatement } from '@/features/payments/api';
 import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
+import { useWhatsApp } from '@/features/whatsapp/WhatsApp';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ function qs(f: Record<string, string | number | undefined>): string {
  */
 export function OverduePage() {
   const can = useCan();
+  const wa = useWhatsApp();
   const band = useOverdueBand();
   const cities = useCities();
   const [tab, setTab] = useState<'overdue' | 'bad_debt'>('overdue');
@@ -74,6 +76,7 @@ export function OverduePage() {
 
   return (
     <div>
+      {wa.element}
       <PageHeader
         title="Overdue"
         description={list.data ? `As of ${list.data.as_of}. Sorted by the longest wait.` : undefined}
@@ -186,9 +189,18 @@ export function OverduePage() {
                       <Button variant="ghost" size="icon" title="Statement PDF" aria-label={`Statement for ${r.name}`} onClick={() => openStatement('customers', r.customer_id, {})}>
                         <FileText />
                       </Button>
-                      <Button variant="ghost" size="icon" title="WhatsApp reminder (coming soon)" aria-label="WhatsApp reminder (coming soon)" disabled>
-                        <MessageCircle />
-                      </Button>
+                      {can('whatsapp.send') && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="WhatsApp payment reminder"
+                          aria-label={`WhatsApp reminder to ${r.name}`}
+                          disabled={wa.busy}
+                          onClick={() => void wa.send({ kind: 'reminder', customerId: r.customer_id })}
+                        >
+                          <MessageCircle />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                   {expanded && (

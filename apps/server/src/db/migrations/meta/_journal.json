@@ -57,6 +57,13 @@
       "when": 1791756271540,
       "tag": "0007_expenses_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791759168374,
+      "tag": "0008_whatsapp",
+      "breakpoints": true
     }
   ]
 }

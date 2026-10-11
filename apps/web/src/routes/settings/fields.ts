@@ -6,7 +6,8 @@ export type FieldDef =
   | { key: SettingKey; label: string; kind: 'percent'; hint?: string }
   | { key: SettingKey; label: string; kind: 'bool'; hint?: string }
   | { key: SettingKey; label: string; kind: 'select'; options: [string, string][]; hint?: string }
-  | { key: SettingKey; label: string; kind: 'time'; hint?: string };
+  | { key: SettingKey; label: string; kind: 'time'; hint?: string }
+  | { key: SettingKey; label: string; kind: 'textarea'; hint?: string };
 
 export interface SectionDef {
   id: string;
@@ -132,6 +133,36 @@ export const SECTIONS: SectionDef[] = [
         kind: 'bool',
         hint: 'Takes effect after ShopLedger is restarted.',
       },
+    ],
+  },
+  {
+    id: 'whatsapp',
+    title: 'WhatsApp',
+    description:
+      'Invoices, statements and payment reminders go out on WhatsApp. Messages can use the placeholders listed below; they never include cost, margin or profit.',
+    fields: [
+      {
+        key: 'whatsapp_mode',
+        label: 'How to send',
+        kind: 'select',
+        options: [
+          ['click_to_chat', 'WhatsApp link (free, no setup)'],
+          ['cloud_api', 'WhatsApp Cloud API (official, needs setup)'],
+        ],
+        hint: 'WhatsApp link: opens the chat with the message ready; you attach the saved PDF and press Send.',
+      },
+      { key: 'whatsapp_invoice_message', label: 'Invoice message', kind: 'textarea' },
+      { key: 'whatsapp_statement_message', label: 'Statement message', kind: 'textarea' },
+      { key: 'whatsapp_reminder_message', label: 'Payment reminder message', kind: 'textarea' },
+      { key: 'whatsapp_cloud_phone_number_id', label: 'Cloud API: phone number ID', kind: 'text', hint: 'From the WhatsApp Manager (Meta Business).' },
+      { key: 'whatsapp_cloud_language', label: 'Cloud API: template language', kind: 'text', hint: 'The language code of your approved templates, e.g. en or en_US.' },
+      { key: 'whatsapp_cloud_invoice_template', label: 'Cloud API: invoice template', kind: 'text', hint: 'Approved utility template with a document header.' },
+      { key: 'whatsapp_cloud_invoice_params', label: 'Invoice template values', kind: 'text', hint: 'Placeholders for {{1}}, {{2}}, … in order, separated by commas.' },
+      { key: 'whatsapp_cloud_statement_template', label: 'Cloud API: statement template', kind: 'text', hint: 'Approved utility template with a document header.' },
+      { key: 'whatsapp_cloud_statement_params', label: 'Statement template values', kind: 'text' },
+      { key: 'whatsapp_cloud_reminder_template', label: 'Cloud API: reminder template', kind: 'text', hint: 'Approved utility template (text only).' },
+      { key: 'whatsapp_cloud_reminder_params', label: 'Reminder template values', kind: 'text' },
+      { key: 'whatsapp_cloud_api_version', label: 'Cloud API: version', kind: 'text', hint: 'Leave as it is unless told otherwise.' },
     ],
   },
   {

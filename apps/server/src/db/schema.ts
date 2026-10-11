@@ -771,3 +771,32 @@ export const assets = sqliteTable(
     check('assets_disposal_ck', sql`${t.disposal_amount_paisa} IS NULL OR ${t.disposal_amount_paisa} >= 0`),
   ],
 );
+
+/**
+ * Every WhatsApp attempt (CLAUDE.md 13): invoices, statements and payment
+ * reminders, by either mode. Successful shares also write an audit 'share' row.
+ */
+export const whatsapp_log = sqliteTable(
+  'whatsapp_log',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    at: text().notNull().default(nowIso),
+    user_id: integer().references(() => users.id),
+    customer_id: integer()
+      .notNull()
+      .references(() => customers.id),
+    kind: text({ enum: ['invoice', 'statement', 'reminder'] }).notNull(),
+    sale_id: integer().references(() => sales.id),
+    doc_no: text(),
+    mode: text({ enum: ['click_to_chat', 'cloud_api'] }).notNull(),
+    /** opened: wa.me link opened (click-to-chat); sent: accepted by the Cloud API. */
+    status: text({ enum: ['opened', 'sent', 'failed'] }).notNull(),
+    /** E.164, as sent. Null when the customer had no number. */
+    phone: text(),
+    /** Relative to DATA_DIR, so the data folder stays portable. */
+    pdf_file: text(),
+    message_id: text(),
+    error: text(),
+  },
+  (t) => [index('whatsapp_log_sale_idx').on(t.sale_id), index('whatsapp_log_customer_idx').on(t.customer_id, t.at)],
+);

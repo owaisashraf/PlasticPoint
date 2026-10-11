@@ -1,15 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
-// A click-through of phases 1–9 on a fresh database, in order:
+// A click-through of phases 1–10 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
-// share) → a below-cost sale needs the owner password → owner sees profit →
-// payments (FIFO), a return with refund, a bounced cheque and a write-off →
-// an overdue customer (badges, Overdue tab, report) → owner edits an invoice →
-// superuser reviews the diff in Change History → owner records expenses and an
-// asset → dashboards and reports (owner and operator) → superuser verifies the
-// audit log.
+// print, WhatsApp) → a below-cost sale needs the owner password → owner sees
+// profit → payments (FIFO), a return with refund, a bounced cheque and a
+// write-off → an overdue customer (badges, Overdue tab, report, WhatsApp
+// reminder) → owner edits an invoice → superuser reviews the diff in Change
+// History → owner records expenses and an asset → dashboards, reports and
+// WhatsApp settings → superuser verifies the audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -31,6 +31,11 @@ async function login(page: Page, username: string, password: string) {
 async function logout(page: Page) {
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
+}
+
+/** wa.me is answered locally: the walkthrough never reaches the internet. */
+async function stubWhatsApp(context: BrowserContext) {
+  await context.route('https://wa.me/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>WhatsApp</title><p>WhatsApp</p>' }));
 }
 
 function nav(page: Page, name: string) {
@@ -302,8 +307,21 @@ test('7. operator sells to a new customer with a changed discount, takes cash an
   expect(pdf.status()).toBe(200);
   expect(pdf.headers()['content-type']).toBe('application/pdf');
   await popup.close();
-  await page.keyboard.press('Escape');
+
+  // WhatsApp (click-to-chat): a wa.me tab with the message, and the PDF saved to attach.
+  await stubWhatsApp(context);
+  const [wa] = await Promise.all([context.waitForEvent('page'), share.getByRole('button', { name: 'Send on WhatsApp' }).click()]);
+  await wa.waitForURL(/^https:\/\/wa\.me\/923217654321\?text=/);
+  expect(decodeURIComponent(new URL(wa.url()).searchParams.get('text') ?? '')).toContain('Your invoice INV-000001');
+  await wa.close();
+  const sent = page.getByRole('dialog');
+  await expect(sent.getByText('WhatsApp opened')).toBeVisible();
+  await expect(sent.getByText('PDF saved: INV-000001-v1.pdf')).toBeVisible();
+  await expect(sent.getByRole('button', { name: 'Open folder' })).toBeVisible();
+  await shot(page, '20b-whatsapp-opened');
+  await sent.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('heading', { name: /Invoice INV-000001/ })).toBeVisible();
+  await expect(page.getByTestId('whatsapp-last-sent')).toContainText('Sent on WhatsApp at');
   await expect(page.getByText('RCV-000001')).toBeVisible();
   await expect(page.getByText('Rs 1,772').first()).toBeVisible();
   await shot(page, '21-sale-view-operator');
@@ -489,6 +507,23 @@ test('13. a back-dated invoice makes a customer overdue: badges, the Overdue tab
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
   expect(download.suggestedFilename()).toMatch(/^overdue-\d{4}-\d{2}-\d{2}\.csv$/);
 
+  // WhatsApp reminder: Danish Store has no number, so it is asked for first.
+  await stubWhatsApp(context);
+  await page.getByRole('button', { name: 'WhatsApp reminder to Danish Store' }).click();
+  const ask = page.getByRole('dialog');
+  await expect(ask.getByText('Danish Store has no phone number. Add their WhatsApp number to send this.')).toBeVisible();
+  await shot(page, '33b-reminder-needs-phone');
+  await ask.getByRole('button', { name: 'Edit phone number' }).click();
+  await page.getByRole('dialog').getByLabel('Phone', { exact: true }).fill('0333-5556667');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('dialog').getByText('Phone number saved')).toBeVisible();
+  const [reminder] = await Promise.all([context.waitForEvent('page'), page.getByRole('dialog').getByRole('button', { name: 'Send on WhatsApp' }).click()]);
+  await reminder.waitForURL(/^https:\/\/wa\.me\/923335556667\?text=/);
+  expect(decodeURIComponent(new URL(reminder.url()).searchParams.get('text') ?? '')).toContain('Rs 945 on your account is overdue (up to 30 days)');
+  await reminder.close();
+  await expect(page.getByRole('dialog').getByText('Payment reminder for 0333 5556667')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+
   // The customer search on New Sale shows the overdue badge, and the sale warns.
   await page.goto('/sales/new');
   await expect(page.getByRole('heading', { name: 'New sale', exact: true })).toBeVisible();
@@ -637,6 +672,13 @@ test('17. owner dashboard and reports: profit & loss, PDF and CSV', async ({ pag
   await page.getByRole('button', { name: 'This fiscal year' }).click();
   await expect(page.getByRole('columnheader', { name: 'Gross profit' })).toBeVisible();
   await expect(page.getByRole('row', { name: /Bilal Traders/ })).toBeVisible();
+
+  await nav(page, 'Settings').click();
+  await page.getByRole('tab', { name: 'WhatsApp' }).click();
+  await expect(page.getByLabel('How to send')).toHaveValue('click_to_chat');
+  await expect(page.getByLabel('Invoice message')).toHaveValue(/\{invoice_no\}/);
+  await expect(page.getByText('Cloud API access token')).toBeVisible();
+  await shot(page, '46-settings-whatsapp');
   await logout(page);
 });
 

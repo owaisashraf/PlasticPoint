@@ -3,7 +3,7 @@ import type { AppInstance } from '../../app';
 import { auditActor } from '../auth/service';
 import { authenticated, currentUser, requirePermission } from '../../lib/permissions';
 import { redact } from '../../lib/redact';
-import { getPublicSettings, getSettings, updateSettings } from './service';
+import { getPublicSettings, getSettings, settingsView, updateSettings } from './service';
 
 export async function settingsRoutes(app: AppInstance) {
   const { ctx } = app;
@@ -11,7 +11,8 @@ export async function settingsRoutes(app: AppInstance) {
   app.get('/api/settings/public', { ...authenticated }, async () => getPublicSettings(ctx.dbh.db));
 
   app.get('/api/settings', { ...requirePermission('settings.manage') }, async (req) =>
-    redact(getSettings(ctx.dbh.db), req.user),
+    // The WhatsApp access token never leaves the server.
+    redact(settingsView(getSettings(ctx.dbh.db)), req.user),
   );
 
   app.patch(

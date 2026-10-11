@@ -50,6 +50,13 @@ describe('settings', () => {
     expect(JSON.parse(row.flags ?? '')).toContain('price_changed');
   });
 
+  it('a save changes only the settings it sends; earlier saved values are kept', async () => {
+    expect((await patch('owner', { business_name: 'Plastic Point', grace_days: 5 })).statusCode).toBe(200);
+    const res = await patch('owner', { default_payment_terms_days: 45 });
+    expect(res.json().changed).toEqual(['default_payment_terms_days']);
+    expect(getSettings(t.dbh.db)).toMatchObject({ business_name: 'Plastic Point', grace_days: 5, default_payment_terms_days: 45 });
+  });
+
   it('a no-op update writes nothing', async () => {
     const before = t.auditCount();
     expect((await patch('owner', { grace_days: 0 })).statusCode).toBe(200);

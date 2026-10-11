@@ -43,7 +43,7 @@ export async function createTestContext(opts: TestOptions = {}): Promise<TestCon
   const tmp = mkdtempSync(join(tmpdir(), 'shopledger-test-'));
   const dataDir = join(tmp, 'data');
   const backupsDir = join(dataDir, 'backups');
-  for (const d of [dataDir, backupsDir, join(dataDir, 'logs'), join(dataDir, 'invoices')]) mkdirSync(d, { recursive: true });
+  for (const d of [dataDir, backupsDir, join(dataDir, 'logs'), join(dataDir, 'invoices'), join(dataDir, 'statements')]) mkdirSync(d, { recursive: true });
 
   const config: AppConfig = {
     appRoot: tmp,
@@ -53,6 +53,7 @@ export async function createTestContext(opts: TestOptions = {}): Promise<TestCon
     dbFile: opts.fileDb ? join(dataDir, 'shopledger.db') : ':memory:',
     backupsDir,
     invoicesDir: join(dataDir, 'invoices'),
+    statementsDir: join(dataDir, 'statements'),
     logsDir: join(dataDir, 'logs'),
     restoreMarkerFile: join(dataDir, 'restore-pending.json'),
     sessionSecret: 'test-secret-test-secret-test-secret-123456',

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatPaisa, formatPhone, REPORTS, type Customer, type LedgerLine, type ReportDef, type WriteOff } from '@shopledger/shared';
-import { ArrowLeft, Ban, Eraser, FileText, HandCoins, Pencil, ShieldAlert, ShieldCheck, UserCheck } from 'lucide-react';
+import { ArrowLeft, Ban, Eraser, FileText, HandCoins, MessageCircle, Pencil, ShieldAlert, ShieldCheck, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
 import { OverdueBadge } from '@/features/overdue';
+import { LastSent, useWhatsApp, useWhatsAppHistory } from '@/features/whatsapp/WhatsApp';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 
@@ -50,6 +51,8 @@ export function CustomerDetailPage() {
   const { data: c, isPending, isError, error } = useCustomer(id);
   const [editing, setEditing] = useState(false);
   const [dialog, setDialog] = useState<'mark' | 'clear' | 'deactivate' | 'pay' | 'write_off' | null>(null);
+  const wa = useWhatsApp();
+  const shared = useWhatsAppHistory({ customer_id: id }, can('whatsapp.send'));
 
   const action = useMutation({
     mutationFn: ({ kind, reason }: { kind: 'mark' | 'clear' | 'deactivate' | 'activate'; reason?: string }) => {
@@ -83,11 +86,22 @@ export function CustomerDetailPage() {
           <p className="text-muted-foreground">
             {[c.code, c.business_name, c.type === 'wholesaler' ? 'Wholesaler' : 'Retailer', c.city].filter(Boolean).join(' · ')}
           </p>
+          <LastSent entries={shared.data?.filter((e) => e.kind !== 'invoice')} />
         </div>
         <div className="flex flex-wrap gap-2">
           {can('payments.create') && (
             <Button onClick={() => setDialog('pay')}>
               <HandCoins /> Record payment
+            </Button>
+          )}
+          {can('whatsapp.send') && (
+            <Button variant="outline" onClick={() => void wa.send({ kind: 'statement', customerId: c.id })} disabled={wa.busy}>
+              <MessageCircle /> Statement on WhatsApp
+            </Button>
+          )}
+          {can('whatsapp.send') && c.overdue_paisa > 0 && (
+            <Button variant="outline" onClick={() => void wa.send({ kind: 'reminder', customerId: c.id })} disabled={wa.busy}>
+              <MessageCircle /> Payment reminder
             </Button>
           )}
           {can('write_offs.manage') && c.balance_paisa > 0 && (
@@ -123,6 +137,7 @@ export function CustomerDetailPage() {
         </div>
       </div>
 
+      {wa.element}
       {c.status === 'bad_debt' && (
         <div className="mb-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-900">
           <strong>Bad debt</strong> since {c.bad_debt_marked_at ? formatDateTime(c.bad_debt_marked_at) : '—'}: {c.bad_debt_reason}. New credit sales need
@@ -281,6 +296,8 @@ function Overview({ c }: { c: Customer }) {
 }
 
 function LedgerTab({ id }: { id: number }) {
+  const can = useCan();
+  const wa = useWhatsApp();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const { data, isPending, isError, error } = useCustomerLedger(id, { from: from || undefined, to: to || undefined });
@@ -296,7 +313,13 @@ function LedgerTab({ id }: { id: number }) {
         <Button variant="outline" className="ml-auto" onClick={() => openStatement('customers', id, { from: from || undefined, to: to || undefined })}>
           <FileText /> Statement PDF
         </Button>
+        {can('whatsapp.send') && (
+          <Button variant="outline" onClick={() => void wa.send({ kind: 'statement', customerId: id, from: from || undefined, to: to || undefined })} disabled={wa.busy}>
+            <MessageCircle /> Send on WhatsApp
+          </Button>
+        )}
       </div>
+      {wa.element}
       {isPending && <p>Loading…</p>}
       {isError && <p className="text-destructive">{errorMessage(error)}</p>}
       {data && (

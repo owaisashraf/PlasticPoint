@@ -26,6 +26,7 @@ const MATRIX: Record<KnownPermission, Role[]> = {
   'overdue.view': ['operator', 'owner', 'superuser'],
   'reports.operational': ['operator', 'owner', 'superuser'],
   'documents.edit_own_same_day': ['operator', 'owner', 'superuser'],
+  'whatsapp.send': ['operator', 'owner', 'superuser'],
   'documents.edit_any': ['owner', 'superuser'],
   'customers.bad_debt': ['owner', 'superuser'],
   'write_offs.manage': ['owner', 'superuser'],

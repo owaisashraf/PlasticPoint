@@ -488,6 +488,7 @@ Permissions live in `packages/shared/permissions.ts` as named keys (for example 
 | Set prices, supplier margins, default/maximum discounts, minimum profit | | ✓ | ✓ |
 | Approve a discount above the maximum, below minimum profit, or below cost (password prompt) | | ✓ | ✓ |
 | Operational reports (statements, aging, overdue, stock qty, day book) | ✓ | ✓ | ✓ |
+| Send invoices, statements and payment reminders on WhatsApp | ✓ | ✓ | ✓ |
 | **Expenses** (add/edit/void/view) | | ✓ | ✓ |
 | **Assets** (add/edit/dispose/void/view) | | ✓ | ✓ |
 | **Financial reports** (profit, P&L, net profit, supplier margins, cost, stock valuation, cash/bank book) | | ✓ | ✓ |
@@ -696,6 +697,12 @@ interface WhatsAppSender {
   - Every attempt is recorded in `whatsapp_log` (customer, document, mode, status, error, timestamp), plus an audit `shared` event.
   - The invoice page shows "Sent on WhatsApp at …" once one has been sent.
 - **Missing or invalid phone number:** show a clear prompt to edit the customer's number.
+- **What is sent:**
+  - Invoices always go as the A4 PDF, regenerated so the balance on it is current. Void invoices cannot be sent.
+  - Statements are saved to `DATA_DIR/statements/YYYY/MM/Statement-<code>-<to date>.pdf`.
+  - Payment reminders are text only (no PDF), and only for customers with something overdue.
+- **Cloud API templates:** each kind (invoice, statement, reminder) has its own template name and a comma list of placeholders that fill the body parameters `{{1}}`, `{{2}}`, … in order.
+- **The access token** is write-only: it is never sent to the browser, and the audit log records it only as `(hidden)`.
 
 ## 14. Backups
 - Use better-sqlite3's online `.backup()`, which is safe while the app is running. Files are named `DATA_DIR/backups/shopledger-YYYY-MM-DD_HHmm.db`.
@@ -821,5 +828,5 @@ Update this checklist as phases are completed.
 - [x] Phase 7 — Editing/voiding + superuser Change History
 - [x] Phase 8 — Expenses & assets (owner+)
 - [x] Phase 9 — Reports: customer, operational, financial/profit & dashboards
-- [ ] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)
+- [x] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)
 - [ ] Phase 11 — Packaging, install scripts, seed data, user guide, move-to-laptop test

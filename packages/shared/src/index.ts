@@ -20,3 +20,4 @@ export * from './overdue';
 export * from './changelog';
 export * from './expenses';
 export * from './reports';
+export * from './whatsapp';

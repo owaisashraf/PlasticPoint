@@ -13,6 +13,8 @@ export interface AppConfig {
   dbFile: string;
   backupsDir: string;
   invoicesDir: string;
+  /** Customer statements saved for sending on WhatsApp. */
+  statementsDir: string;
   logsDir: string;
   /** Written before a restore swaps files; consumed at the next open. */
   restoreMarkerFile: string;
@@ -83,8 +85,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const dataDir = isAbsolute(dataDirRaw) ? dataDirRaw : resolve(appRoot, dataDirRaw);
   const backupsDir = join(dataDir, 'backups');
   const invoicesDir = join(dataDir, 'invoices');
+  const statementsDir = join(dataDir, 'statements');
   const logsDir = join(dataDir, 'logs');
-  for (const d of [dataDir, backupsDir, invoicesDir, logsDir]) mkdirSync(d, { recursive: true });
+  for (const d of [dataDir, backupsDir, invoicesDir, statementsDir, logsDir]) mkdirSync(d, { recursive: true });
 
   const port = Number(env.PORT?.trim() || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid PORT: ${env.PORT}`);
@@ -101,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dbFile: join(dataDir, 'shopledger.db'),
     backupsDir,
     invoicesDir,
+    statementsDir,
     logsDir,
     restoreMarkerFile: join(dataDir, 'restore-pending.json'),
     sessionSecret,

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { bpToPercentString, parsePercentToBp, type Settings, type SettingKey } from '@shopledger/shared';
+import { bpToPercentString, parsePercentToBp, type Settings, type SettingKey, type SettingsView } from '@shopledger/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm, type UseFormReturn } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -7,7 +7,7 @@ import { FormField } from '@/components/FormField';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input, NativeSelect } from '@/components/ui/input';
+import { Input, NativeSelect, Textarea } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCan } from '@/features/auth/useAuth';
@@ -17,6 +17,7 @@ import { BackupsPanel } from './BackupsPanel';
 import { ExpenseCategoriesPanel } from './ExpenseCategoriesPanel';
 import { SECTIONS, type FieldDef } from './fields';
 import { UsersPanel } from './UsersPanel';
+import { WhatsAppPanel } from './WhatsAppPanel';
 
 const SETTINGS_KEY = ['settings'] as const;
 
@@ -59,7 +60,7 @@ export function SettingsPage() {
   const can = useCan();
   const qc = useQueryClient();
   const [tab, setTab] = useState('business');
-  const settings = useQuery({ queryKey: SETTINGS_KEY, queryFn: () => api.get<Settings>('/api/settings') });
+  const settings = useQuery({ queryKey: SETTINGS_KEY, queryFn: () => api.get<SettingsView>('/api/settings') });
 
   const form = useForm<FormValues>({ defaultValues: {} });
   const { reset } = form;
@@ -69,9 +70,10 @@ export function SettingsPage() {
 
   const save = useMutation({
     mutationFn: (changes: Partial<Settings>) =>
-      api.patch<{ settings: Settings; changed: SettingKey[]; restart_required: boolean }>('/api/settings', { changes }),
+      api.patch<{ settings: SettingsView; changed: SettingKey[]; restart_required: boolean }>('/api/settings', { changes }),
     onSuccess: (res) => {
       qc.setQueryData(SETTINGS_KEY, res.settings);
+      void qc.invalidateQueries({ queryKey: ['settings', 'public'] });
       void qc.invalidateQueries({ queryKey: ['me'] });
       reset(toForm(res.settings));
       if (res.changed.length === 0) toast.info('Nothing changed.');
@@ -172,6 +174,7 @@ export function SettingsPage() {
               </CardContent>
             </Card>
             {s.id === 'backups' && can('backups.manage') && <BackupsPanel />}
+            {s.id === 'whatsapp' && settings.data && <WhatsAppPanel tokenSet={settings.data.secrets_set.whatsapp_cloud_token} />}
           </TabsContent>
         ))}
         {can('expenses.manage') && (
@@ -192,7 +195,7 @@ export function SettingsPage() {
 function SettingField({ field: f, form }: { field: FieldDef; form: UseFormReturn<FormValues> }) {
   const error = form.formState.errors[f.key]?.message;
   const dirty = Boolean(form.formState.dirtyFields[f.key]);
-  const wide = f.kind === 'text' && f.wide;
+  const wide = (f.kind === 'text' && f.wide) || f.kind === 'textarea';
   const cls = cn(dirty && 'border-primary ring-1 ring-primary');
 
   return (
@@ -213,7 +216,9 @@ function SettingField({ field: f, form }: { field: FieldDef; form: UseFormReturn
         </div>
       ) : (
         <FormField label={f.label} htmlFor={f.key} error={error} hint={f.hint}>
-          {f.kind === 'select' ? (
+          {f.kind === 'textarea' ? (
+            <Textarea id={f.key} rows={8} className={cls} aria-invalid={Boolean(error)} {...form.register(f.key)} />
+          ) : f.kind === 'select' ? (
             <NativeSelect id={f.key} className={cls} {...form.register(f.key)}>
               {f.options.map(([v, l]) => (
                 <option key={v} value={v}>
