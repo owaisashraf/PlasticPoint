@@ -42,8 +42,8 @@ export function useCustomerLedger(id: number, range: { from?: string; to?: strin
   });
 }
 
-export function useCities() {
-  return useQuery({ queryKey: [...CUSTOMERS_KEY, 'cities'], queryFn: () => api.get<{ cities: string[] }>('/api/customers/cities').then((r) => r.cities) });
+export function useCities(enabled = true) {
+  return useQuery({ queryKey: [...CUSTOMERS_KEY, 'cities'], queryFn: () => api.get<{ cities: string[] }>('/api/customers/cities').then((r) => r.cities), enabled });
 }
 
 export function usePublicSettings() {

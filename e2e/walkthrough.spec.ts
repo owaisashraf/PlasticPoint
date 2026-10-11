@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// A click-through of phases 1–8 on a fresh database, in order:
+// A click-through of phases 1–9 on a fresh database, in order:
 // first-run setup → owner sets up users, supplier, products → operator adds a
 // customer, records a purchase, prints it and returns items → owner updates a
 // price from a bill → operator sells (new customer, changed discount, cash,
@@ -8,7 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
 // payments (FIFO), a return with refund, a bounced cheque and a write-off →
 // an overdue customer (badges, Overdue tab, report) → owner edits an invoice →
 // superuser reviews the diff in Change History → owner records expenses and an
-// asset → superuser verifies the audit log.
+// asset → dashboards and reports (owner and operator) → superuser verifies the
+// audit log.
 // Screenshots of each step go to test-results/walkthrough/.
 
 test.describe.configure({ mode: 'serial' });
@@ -606,7 +607,57 @@ test('16. owner records expenses and an asset, and manages expense categories', 
   await logout(page);
 });
 
-test('17. superuser verifies the audit log', async ({ page }) => {
+test('17. owner dashboard and reports: profit & loss, PDF and CSV', async ({ page, context }) => {
+  await login(page, 'owner', PW.owner);
+  await expect(page.getByText('Net profit', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('Expenses this month')).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Profit for the last 12 months' })).toBeVisible();
+  await shot(page, '42-owner-dashboard');
+
+  await nav(page, 'Reports').click();
+  await expect(page.getByRole('heading', { name: 'Profit and money (owner)' })).toBeVisible();
+  await shot(page, '43-reports');
+  await page.getByRole('link', { name: /Profit & loss/ }).click();
+  await expect(page.getByRole('heading', { name: 'Profit & loss' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /^Net sales/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /^Net profit/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /Rent/ })).toBeVisible();
+  await shot(page, '44-profit-and-loss');
+  const [popup, pdf] = await Promise.all([
+    context.waitForEvent('page'),
+    context.waitForEvent('response', (r) => r.url().includes('/api/reports/profit-loss') && r.url().includes('format=pdf')),
+    page.getByRole('button', { name: 'Print / PDF' }).click(),
+  ]);
+  expect(pdf.status()).toBe(200);
+  await popup.close();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^profit-loss-\d{4}-\d{2}-\d{2}\.csv$/);
+
+  await page.goto('/reports/customer-summary');
+  await page.getByRole('button', { name: 'This fiscal year' }).click();
+  await expect(page.getByRole('columnheader', { name: 'Gross profit' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /Bilal Traders/ })).toBeVisible();
+  await logout(page);
+});
+
+test('18. operators see day-to-day reports without profit, and their own dashboard', async ({ page }) => {
+  await login(page, 'ali', PW.operator);
+  await expect(page.getByText('Sales today')).toBeVisible();
+  await expect(page.getByText('Expenses this month')).toHaveCount(0);
+  await nav(page, 'Reports').click();
+  await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Profit and money (owner)' })).toHaveCount(0);
+  await page.getByRole('link', { name: /Customer summary/ }).click();
+  await page.getByRole('button', { name: 'This fiscal year' }).click();
+  await expect(page.getByRole('row', { name: /Bilal Traders/ })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Gross profit' })).toHaveCount(0);
+  await shot(page, '45-operator-customer-summary');
+  await page.goto('/reports/profit-loss');
+  await expect(page.getByRole('heading', { name: 'Not available' })).toBeVisible();
+  await logout(page);
+});
+
+test('19. superuser verifies the audit log', async ({ page }) => {
   await login(page, 'super', PW.super);
   await nav(page, 'Change History').click();
   await page.getByRole('button', { name: 'Verify integrity' }).click();

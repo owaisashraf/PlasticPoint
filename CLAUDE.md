@@ -820,6 +820,6 @@ Update this checklist as phases are completed.
 - [x] Phase 6 — Payment terms & Overdue tab
 - [x] Phase 7 — Editing/voiding + superuser Change History
 - [x] Phase 8 — Expenses & assets (owner+)
-- [ ] Phase 9 — Reports: customer, operational, financial/profit & dashboards
+- [x] Phase 9 — Reports: customer, operational, financial/profit & dashboards
 - [ ] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)
 - [ ] Phase 11 — Packaging, install scripts, seed data, user guide, move-to-laptop test

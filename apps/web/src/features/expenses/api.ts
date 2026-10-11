@@ -11,8 +11,8 @@ function qs(f: Record<string, string | number | undefined>): string {
   return p.toString();
 }
 
-export function useExpenseCategories() {
-  return useQuery({ queryKey: [...EXPENSES_KEY, 'categories'], queryFn: () => api.get<{ categories: ExpenseCategory[] }>('/api/expense-categories').then((r) => r.categories) });
+export function useExpenseCategories(enabled = true) {
+  return useQuery({ queryKey: [...EXPENSES_KEY, 'categories'], queryFn: () => api.get<{ categories: ExpenseCategory[] }>('/api/expense-categories').then((r) => r.categories), enabled });
 }
 
 export function useExpenses(f: { q?: string; from?: string; to?: string; category_id?: string; method?: string; limit?: number }) {

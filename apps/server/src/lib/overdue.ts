@@ -73,6 +73,14 @@ function openItemsSql(today: string, customerIds?: readonly number[]): SQL {
     WHERE total_paisa - paid_paisa > 0 ${only}`;
 }
 
+/**
+ * Every open item (outstanding > 0) with its days past due (zero or negative
+ * = not due yet), for the aging report.
+ */
+export function openItemsWithAge(db: DbOrTx, o: Pick<OverdueOptions, 'today' | 'customerIds'> = {}): OpenItemRow[] {
+  return db.all<OpenItemRow>(sql`SELECT * FROM (${openItemsSql(o.today ?? businessToday(), o.customerIds)}) ORDER BY customer_id, due_date`);
+}
+
 /** Overdue items, most overdue first. */
 export function overdueItems(db: DbOrTx, o: OverdueOptions = {}): OpenItemRow[] {
   const { today, grace } = resolve(db, o);

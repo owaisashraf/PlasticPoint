@@ -22,6 +22,7 @@ import { AssetDetailPage } from './routes/assets/AssetDetailPage';
 import { AssetsPage } from './routes/assets/AssetsPage';
 import { ExpensesPage } from './routes/expenses/ExpensesPage';
 import { OverduePage } from './routes/overdue/OverduePage';
+import { ReportPage, ReportsPage } from './routes/reports/ReportsPage';
 import { PaymentsPage } from './routes/payments/PaymentsPage';
 import { ReturnsPage } from './routes/returns/ReturnsPage';
 import { EditSalePage, NewSalePage } from './routes/sales/NewSalePage';
@@ -43,6 +44,7 @@ const BUILT_PAGES: Record<string, ReactNode> = {
   '/overdue': <OverduePage />,
   '/expenses': <ExpensesPage />,
   '/assets': <AssetsPage />,
+  '/reports': <ReportsPage />,
   '/change-history': <ChangeHistoryPage />,
 };
 
@@ -110,6 +112,14 @@ export function App() {
           element={
             <Guard permission="products.view">
               <ProductDetailPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/reports/:key"
+          element={
+            <Guard permission="reports.operational">
+              <ReportPage />
             </Guard>
           }
         />

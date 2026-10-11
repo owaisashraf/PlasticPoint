@@ -24,6 +24,7 @@ import { assetRoutes } from './modules/assets/routes';
 import { expenseRoutes } from './modules/expenses/routes';
 import { overdueRoutes } from './modules/overdue/routes';
 import { paymentRoutes } from './modules/payments/routes';
+import { reportRoutes } from './modules/reports/routes';
 import { returnRoutes } from './modules/returns/routes';
 import { saleRoutes } from './modules/sales/routes';
 import { writeOffRoutes } from './modules/write-offs/routes';
@@ -148,6 +149,7 @@ export async function buildApp(ctx: AppContext, opts: BuildAppOptions = {}): Pro
   await overdueRoutes(app);
   await expenseRoutes(app);
   await assetRoutes(app);
+  await reportRoutes(app);
   await stockRoutes(app);
 
   if (ctx.config.webDistDir) {

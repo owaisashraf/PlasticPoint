@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatPaisa, formatPhone, type Customer, type LedgerLine, type WriteOff } from '@shopledger/shared';
+import { formatPaisa, formatPhone, REPORTS, type Customer, type LedgerLine, type ReportDef, type WriteOff } from '@shopledger/shared';
 import { ArrowLeft, Ban, Eraser, FileText, HandCoins, Pencil, ShieldAlert, ShieldCheck, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -19,6 +19,9 @@ import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnsTable } from '@/features/payments/SalesReturnsTable';
 import { WriteOffDialog } from '@/features/payments/WriteOffDialog';
 import { VoidButton } from '@/features/documents';
+import { ReportView } from '@/features/reports/ReportView';
+
+const reportDef = (key: string) => REPORTS.find((r) => r.key === key) as ReportDef;
 import { useCan } from '@/features/auth/useAuth';
 import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
@@ -180,7 +183,7 @@ export function CustomerDetailPage() {
           <SalesReturnsTable customerId={c.id} />
         </TabsContent>
         <TabsContent value="items">
-          <Later what="Items bought" phase={9} />
+          <ReportView def={reportDef('items-bought')} fixed={{ customer_id: c.id }} compact />
         </TabsContent>
         <TabsContent value="notes">
           <Card>
@@ -189,7 +192,7 @@ export function CustomerDetailPage() {
         </TabsContent>
         {can('finance.view') && (
           <TabsContent value="profit">
-            <Later what="Profit from this customer" phase={9} />
+            <ReportView def={reportDef('gross-profit')} fixed={{ customer_id: c.id }} compact />
           </TabsContent>
         )}
       </Tabs>
@@ -240,14 +243,6 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
         <div className="mt-1">{children}</div>
       </CardContent>
     </Card>
-  );
-}
-
-function Later({ what, phase }: { what: string; phase: number }) {
-  return (
-    <div className="rounded-lg border border-dashed border-border bg-card py-12 text-center text-muted-foreground">
-      {what} will appear here once that part is built (phase {phase}).
-    </div>
   );
 }
 
