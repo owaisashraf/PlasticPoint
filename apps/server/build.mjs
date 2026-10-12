@@ -24,7 +24,7 @@ const common = {
 await build({ ...common, entryPoints: { server: 'src/index.ts' }, outdir: 'dist' });
 await build({
   ...common,
-  entryPoints: ['migrate', 'backup-now', 'verify-audit', 'reset-superuser'].map((n) => `src/cli/${n}.ts`),
+  entryPoints: ['migrate', 'backup-now', 'verify-audit', 'reset-superuser', 'seed'].map((n) => `src/cli/${n}.ts`),
   outdir: 'dist/cli',
 });
 

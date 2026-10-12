@@ -108,7 +108,8 @@ shopledger/
           service.test.ts
         pdf/                    # invoice, statement and report templates
         jobs/backup.ts
-        cli/                    # reset-superuser.ts, verify-audit.ts
+        cli/                    # reset-superuser.ts, verify-audit.ts, seed.ts
+        seed/                   # demo shop generator (catalog, simulated clock, simulation)
       test/helpers.ts           # creates an in-memory DB with migrations; users for each role
     web/
       src/
@@ -120,10 +121,11 @@ shopledger/
   packages/
     shared/                     # Zod schemas, types, enums, PERMISSIONS map
   scripts/
-    seed.ts                     # realistic demo data
+    demo.mjs                    # demo:build / demo / demo:start on ./demo-data
     install.bat                 # npm ci --omit=dev, migrate, create desktop shortcut
     start.bat                   # starts server and opens browser
   data/                         # gitignored: db, backups, invoices, logs
+  demo-data/                    # gitignored: the demo shop (npm run demo:build)
 ```
 
 ## 5. Commands
@@ -137,6 +139,8 @@ npm run test:e2e         # playwright (dev machine only)
 npm run db:generate      # drizzle-kit generate after any schema change
 npm run db:migrate       # apply migrations to DATA_DIR db
 npm run seed             # fill a NEW db with demo data (refuses if db has data)
+npm run demo:build       # rebuild ./demo-data: 18 months of demo shop (never touches ./data)
+npm run demo             # dev servers on ./demo-data (demo:start = built app)
 npm run backup:now       # manual backup
 npm run verify-audit     # check the audit log hash chain
 npm run reset-superuser  # local-only recovery: reset superuser password
@@ -781,7 +785,9 @@ interface WhatsAppSender {
   - receive payment → the overdue list updates
   - the owner edits an invoice → the superuser sees the diff in Change History
   - an operator cannot open the Expenses, Assets or profit report URLs
-- **Seed script:**
+- **Seed script** (`npm run seed`; `npm run demo:build` for the separate demo folder):
+  - Plays every working day through the real API with a simulated clock, so all rules, profit, allocations and the audit chain stay consistent. Fixed random seed; dates are relative to today, so rebuild on the morning of a demo. Logins `admin`, `owner`, `ali`, `sana`, password `demo1234`.
+  - 18 months by default (`--months`), so the profit & loss can compare two fiscal years
   - 40 customers with Pakistani names and cities, and varied payment terms
   - 60 products with sizes, colors, prices, supplier margins of 10–15% and default discounts of 5–12%
   - 6 months of sales, purchases, payments and returns

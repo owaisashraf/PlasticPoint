@@ -23,6 +23,10 @@
     "backup:now": "node scripts/run-cli.mjs backup-now",
     "verify-audit": "node scripts/run-cli.mjs verify-audit",
     "reset-superuser": "node scripts/run-cli.mjs reset-superuser",
+    "seed": "node scripts/run-cli.mjs seed",
+    "demo:build": "node scripts/demo.mjs build",
+    "demo": "node scripts/demo.mjs dev",
+    "demo:start": "node scripts/demo.mjs start",
     "test:e2e": "npm run build && playwright test"
   },
   "devDependencies": {
