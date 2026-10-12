@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestContext, type TestContext } from '../../test/helpers';
 import { auditTail, verifyAudit } from '../lib/audit';
+import { readSingleEntryZip } from '../../test/zip';
 import { getSettings, updateSettings } from '../modules/settings/service';
 import { KEEP_DAILY, KEEP_MONTHLY, validateBackupFile } from './backup';
 
@@ -256,5 +257,39 @@ describe('restore', () => {
     ).toBe(403);
     // Everyone sees the footer status.
     expect((await t.app.inject({ method: 'GET', url: '/api/backups/status', headers: { cookie } })).statusCode).toBe(200);
+  });
+});
+
+describe('download', () => {
+  it('gives the owner and superuser a compressed .zip of the backup, and audits it', async () => {
+    t = await createTestContext({ fileDb: true });
+    const entry = await t.backups.runBackup('manual', OWNER());
+    const before = t.auditCount();
+    for (const role of ['owner', 'superuser'] as const) {
+      const res = await t.app.inject({ method: 'GET', url: `/api/backups/download?file=${entry.file_name}`, headers: { cookie: await t.cookie(role) } });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.headers['content-type']).toBe('application/zip');
+      expect(res.headers['content-disposition']).toBe(`attachment; filename="${entry.file_name.replace(/\.db$/, '.zip')}"`);
+      const zipped = readSingleEntryZip(res.rawPayload);
+      expect(zipped.name).toBe(entry.file_name);
+      expect(zipped.data.equals(readFileSync(join(t.config.backupsDir, entry.file_name)))).toBe(true);
+      expect(res.rawPayload.length).toBeLessThan(zipped.data.length);
+    }
+    expect(t.auditCount()).toBe(before + 2);
+    const last = t.dbh.sqlite.prepare("SELECT action, entity, user_role, summary_json FROM audit_log ORDER BY id DESC LIMIT 1").get() as Record<string, string>;
+    expect(last).toMatchObject({ action: 'download', entity: 'backup', user_role: 'superuser' });
+    expect(JSON.parse(last.summary_json as string)).toMatchObject({ file_name: entry.file_name, size_bytes: entry.size_bytes });
+    expect(verifyAudit(t.dbh.sqlite).ok).toBe(true);
+  });
+
+  it('only files in the backup list can be downloaded, and operators cannot download at all', async () => {
+    t = await createTestContext({ fileDb: true });
+    const entry = await t.backups.runBackup('manual', OWNER());
+    const get = async (role: 'owner' | 'operator', file: string) =>
+      t.app.inject({ method: 'GET', url: `/api/backups/download?file=${encodeURIComponent(file)}`, headers: { cookie: await t.cookie(role) } });
+    expect((await get('operator', entry.file_name)).statusCode).toBe(403);
+    expect((await get('owner', '../shopledger.db')).statusCode).toBe(400);
+    expect((await get('owner', 'shopledger.db')).statusCode).toBe(404);
+    expect((await get('owner', 'shopledger-2020-01-01_0000.db')).statusCode).toBe(404);
   });
 });

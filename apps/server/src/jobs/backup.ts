@@ -16,6 +16,7 @@ import { backup_log } from '../db/schema';
 import { auditTail, SYSTEM_ACTOR, verifyAudit, writeAudit, type AuditActor } from '../lib/audit';
 import { BUSINESS_TIME_ZONE, HOUR_MS, karachiFileStamp, msSince, nowIso, toBusinessDate } from '../lib/dates';
 import { AppError, badRequest, notFound } from '../lib/errors';
+import { zipSingleFile } from '../lib/zip';
 import { deleteAllSessions } from '../modules/auth/sessions';
 import { getSetting } from '../modules/settings/service';
 
@@ -268,6 +269,25 @@ export class BackupService {
         return { file_name: n, size_bytes: st.size, modified_at: st.mtime.toISOString(), is_pre_restore: PRE_RESTORE_RE.test(n) };
       })
       .sort((a, b) => (a.modified_at < b.modified_at ? 1 : -1));
+  }
+
+  /**
+   * A backup as a compressed .zip for the owner to download (e.g. to email
+   * it). Only files in the backup list can be picked; each download is audited.
+   */
+  async zipForDownload(fileName: string, actor: AuditActor): Promise<{ zip_name: string; zip: Buffer }> {
+    const file = this.listFiles().find((f) => f.file_name === fileName);
+    if (!file) throw notFound('That backup is no longer in the backups folder.');
+    const zip = await zipSingleFile(file.file_name, readFileSync(join(this.config.backupsDir, file.file_name)), new Date(file.modified_at));
+    const zip_name = file.file_name.replace(/\.db$/, '.zip');
+    writeTx(this.dbh.db, (tx) =>
+      writeAudit(tx, actor, {
+        action: 'download',
+        entity: 'backup',
+        summary: { file_name: file.file_name, size_bytes: file.size_bytes, zip_bytes: zip.length },
+      }),
+    );
+    return { zip_name, zip };
   }
 
   // --- Restore ---------------------------------------------------------------

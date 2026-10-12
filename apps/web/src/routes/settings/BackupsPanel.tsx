@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BackupFile, BackupLogEntry } from '@shopledger/shared';
-import { DatabaseBackup, RotateCcw } from 'lucide-react';
+import { DatabaseBackup, Download, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useClearSession } from '@/features/auth/useAuth';
-import { api, errorMessage } from '@/lib/api';
+import { api, ApiError, errorMessage } from '@/lib/api';
 import { formatBytes, formatDateTime } from '@/lib/utils';
 
 const BACKUPS_KEY = ['backups'] as const;
@@ -25,9 +25,37 @@ const TRIGGER_LABEL: Record<BackupLogEntry['trigger'], string> = {
   pre_restore: 'Before restore',
 };
 
+/** Downloads a backup as a .zip (made on the server); errors show as a message, not an error page. */
+async function downloadBackup(fileName: string): Promise<void> {
+  const res = await fetch(`/api/backups/download?file=${encodeURIComponent(fileName)}`, { credentials: 'same-origin' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    throw new ApiError(res.status, body?.error ?? 'The download failed. Please try again.', body?.code);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName.replace(/\.db$/, '.zip');
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function BackupsPanel() {
   const qc = useQueryClient();
   const [restoring, setRestoring] = useState<BackupFile | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const download = async (fileName: string) => {
+    setDownloading(fileName);
+    try {
+      await downloadBackup(fileName);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setDownloading(null);
+    }
+  };
   const data = useQuery({
     queryKey: BACKUPS_KEY,
     queryFn: () => api.get<{ files: BackupFile[]; log: BackupLogEntry[] }>('/api/backups'),
@@ -51,7 +79,10 @@ export function BackupsPanel() {
       <CardHeader className="flex-row items-start justify-between">
         <div>
           <CardTitle>Backup files</CardTitle>
-          <CardDescription>Kept: 30 daily and 12 monthly backups. Safety copies made before a restore are never deleted.</CardDescription>
+          <CardDescription>
+            Kept: 30 daily and 12 monthly backups. Safety copies made before a restore are never deleted. Download gives a compressed .zip; it holds all the shop's data,
+            so keep it private.
+          </CardDescription>
         </div>
         <Button onClick={() => backupNow.mutate()} disabled={backupNow.isPending}>
           <DatabaseBackup /> {backupNow.isPending ? 'Backing up…' : 'Back up now'}
@@ -86,7 +117,16 @@ export function BackupsPanel() {
                     </td>
                     <td>{formatDateTime(f.modified_at)}</td>
                     <td className="amount">{formatBytes(f.size_bytes)}</td>
-                    <td className="text-right">
+                    <td className="text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Download ${f.file_name}`}
+                        onClick={() => void download(f.file_name)}
+                        disabled={downloading === f.file_name}
+                      >
+                        <Download /> {downloading === f.file_name ? 'Preparing…' : 'Download'}
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => setRestoring(f)}>
                         <RotateCcw /> Restore
                       </Button>

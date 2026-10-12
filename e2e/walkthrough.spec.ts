@@ -679,6 +679,14 @@ test('17. owner dashboard and reports: profit & loss, PDF and CSV', async ({ pag
   await expect(page.getByLabel('Invoice message')).toHaveValue(/\{invoice_no\}/);
   await expect(page.getByText('Cloud API access token')).toBeVisible();
   await shot(page, '46-settings-whatsapp');
+
+  // Backups: take one, then download it as a compressed .zip.
+  await page.getByRole('tab', { name: 'Backups' }).click();
+  await page.getByRole('button', { name: 'Back up now' }).click();
+  await expect(page.getByRole('button', { name: /^Download shopledger-/ }).first()).toBeVisible();
+  const [backupZip] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /^Download shopledger-/ }).first().click()]);
+  expect(backupZip.suggestedFilename()).toMatch(/^shopledger-\d{4}-\d{2}-\d{2}_\d{4}\.zip$/);
+  await shot(page, '47-backups-download');
   await logout(page);
 });
 

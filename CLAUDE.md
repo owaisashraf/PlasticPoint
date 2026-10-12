@@ -716,6 +716,7 @@ interface WhatsAppSender {
   - Record the audit log's last id and hash in `backup_log`.
   - Copy it to an optional **second folder** (a USB drive, or a Google Drive / OneDrive desktop-sync folder). No cloud APIs.
 - **Retention:** keep 30 daily and 12 monthly backups; delete older ones.
+- **Download** (owner+ only, audited): any backup in the list can be downloaded as a `.zip`, compressed with Node's built-in zlib (no dependency), so it can be emailed or kept elsewhere. Operators never get backup files: a backup is the whole database, including cost, profit, expenses and password hashes.
 - **Restore** (owner+):
   1. Pick a backup.
   2. Validate it.

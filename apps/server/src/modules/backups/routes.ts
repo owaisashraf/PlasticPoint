@@ -1,5 +1,5 @@
 import { SESSION_COOKIE } from '../auth/sessions';
-import { restoreBackupSchema } from '@shopledger/shared';
+import { backupDownloadQuerySchema, restoreBackupSchema } from '@shopledger/shared';
 import type { AppInstance } from '../../app';
 import { auditActor } from '../auth/service';
 import { authenticated, currentUser, requirePermission } from '../../lib/permissions';
@@ -18,6 +18,17 @@ export async function backupRoutes(app: AppInstance) {
   app.post('/api/backups', { ...requirePermission('backups.manage') }, async (req) => ({
     entry: await ctx.backups.runBackup('manual', auditActor(currentUser(req))),
   }));
+
+  // Download a backup as a .zip (owner+ only: the file is the whole database,
+  // with cost, profit, expenses and password hashes in it).
+  app.get('/api/backups/download', { ...requirePermission('backups.manage'), schema: { querystring: backupDownloadQuerySchema } }, async (req, reply) => {
+    const { zip_name, zip } = await ctx.backups.zipForDownload(req.query.file, auditActor(currentUser(req)));
+    return reply
+      .header('Content-Type', 'application/zip')
+      .header('Content-Disposition', `attachment; filename="${zip_name}"`)
+      .header('Cache-Control', 'no-store')
+      .send(zip);
+  });
 
   app.post(
     '/api/backups/restore',

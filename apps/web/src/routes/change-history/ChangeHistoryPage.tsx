@@ -60,6 +60,7 @@ const ACTION_LABEL: Record<string, string> = {
   update: 'Changed',
   void: 'Voided',
   print: 'Printed',
+  download: 'Downloaded',
   share: 'Shared',
   bounce: 'Cheque bounced',
   reverse: 'Reversed',

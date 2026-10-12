@@ -43,3 +43,8 @@ export const restoreBackupSchema = z.object({
   reason: z.string().trim().min(3, 'Enter a reason for the restore').max(300),
 });
 export type RestoreBackupInput = z.infer<typeof restoreBackupSchema>;
+
+/** GET /api/backups/download?file=… — a file name from the backup list, nothing else. */
+export const backupDownloadQuerySchema = z.object({
+  file: z.string().regex(/^[A-Za-z0-9_.-]+\.db$/, 'Pick a backup from the list.'),
+});
