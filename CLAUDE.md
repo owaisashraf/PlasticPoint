@@ -122,8 +122,12 @@ shopledger/
     shared/                     # Zod schemas, types, enums, PERMISSIONS map
   scripts/
     demo.mjs                    # demo:build / demo / demo:start on ./demo-data
-    install.bat                 # npm ci --omit=dev, migrate, create desktop shortcut
-    start.bat                   # starts server and opens browser
+    install.bat                 # checks Node, npm ci --omit=dev if needed, migrate, desktop + Startup shortcuts
+    start.bat                   # starts server and opens browser (or just the browser if already running)
+    verify-audit.bat, backup-now.bat, reset-superuser.bat   # double-click helpers on the laptop
+    package.mjs                 # npm run package: release/ShopLedger + zip
+    release-test.mjs            # npm run release:test: the move-to-laptop test
+  docs/                         # USER_GUIDE.md, MOVE_TO_NEW_LAPTOP.md (shipped in the release)
   data/                         # gitignored: db, backups, invoices, logs
   demo-data/                    # gitignored: the demo shop (npm run demo:build)
 ```
@@ -136,6 +140,8 @@ npm run build            # vite build + esbuild server bundle
 npm start                # node apps/server/dist/server.js (production)
 npm test                 # vitest, all workspaces
 npm run test:e2e         # playwright (dev machine only)
+npm run package          # build release/ShopLedger (+ zip) for the shop laptop
+npm run release:test     # move-to-laptop test on the release zip (install, copy data, verify, start)
 npm run db:generate      # drizzle-kit generate after any schema change
 npm run db:migrate       # apply migrations to DATA_DIR db
 npm run seed             # fill a NEW db with demo data (refuses if db has data)
@@ -815,9 +821,11 @@ interface WhatsAppSender {
 - Never put `await` inside a better-sqlite3 transaction.
 
 ## 18. Deployment to the shop laptop
+`npm run package` makes `release/ShopLedger/` (and `ShopLedger-<version>.zip`): `apps/server/dist`, `apps/web/dist`, `scripts/`, `docs/`, a `package.json` with only the server's runtime dependencies, its `package-lock.json`, and `node_modules` installed for Windows x64 / Node 24, so installing needs no internet. `npm run release:test` runs the move-to-laptop test on the zip; run it before handing over a release.
 1. Install Node.js 24 LTS (Windows x64 installer).
-2. Copy the built app folder: `apps/server/dist`, `apps/web/dist`, `package.json`, `package-lock.json`, `scripts/`.
-3. Run `scripts/install.bat`. It runs `npm ci --omit=dev`, applies migrations, creates the `data` folder, and adds a desktop shortcut plus a Startup-folder shortcut to `start.bat`.
+2. Copy the release folder (or extract the zip), e.g. to `C:\ShopLedger`.
+3. Run `scripts/install.bat`. It checks Node, runs `npm ci --omit=dev` only if the bundled parts are missing or do not load (e.g. after a Node major upgrade), applies migrations, creates the `data` folder, and adds a desktop shortcut plus a Startup-folder shortcut to `start.bat`.
+   - `start.bat` runs `node --max-semi-space-size=2`: Node 24's default young-generation heap takes idle memory to ~230 MB; this keeps it near 110–120 MB (section 2 target).
 4. First run: create the superuser, then the owner, then operators.
 5. To move existing data: copy the old `data` folder, or restore the latest backup from Settings. Then run `npm run verify-audit`.
 6. Write a one-page `docs/USER_GUIDE.md` (with separate sections for operator, owner and superuser) and `docs/MOVE_TO_NEW_LAPTOP.md`, in plain English.
@@ -836,4 +844,4 @@ Update this checklist as phases are completed.
 - [x] Phase 8 — Expenses & assets (owner+)
 - [x] Phase 9 — Reports: customer, operational, financial/profit & dashboards
 - [x] Phase 10 — WhatsApp (click-to-chat, then Cloud API mode)
-- [ ] Phase 11 — Packaging, install scripts, seed data, user guide, move-to-laptop test
+- [x] Phase 11 — Packaging, install scripts, seed data, user guide, move-to-laptop test

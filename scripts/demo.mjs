@@ -28,7 +28,7 @@ if (command === 'build') {
     process.exit(1);
   }
   console.log(`Demo shop: data from ${demoDir}`);
-  run(process.execPath, command === 'dev' ? [join(root, 'scripts/dev.mjs')] : [join(root, 'apps/server/dist/server.js'), ...args]);
+  run(process.execPath, command === 'dev' ? [join(root, 'scripts/dev.mjs')] : ['--max-semi-space-size=2', join(root, 'apps/server/dist/server.js'), ...args]);
 } else {
   console.error('Usage: node scripts/demo.mjs build | dev | start');
   process.exit(1);

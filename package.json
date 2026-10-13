@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run build -w @shopledger/web && npm run build -w @shopledger/server",
-    "start": "node apps/server/dist/server.js",
+    "start": "node --max-semi-space-size=2 apps/server/dist/server.js",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
@@ -27,7 +27,9 @@
     "demo:build": "node scripts/demo.mjs build",
     "demo": "node scripts/demo.mjs dev",
     "demo:start": "node scripts/demo.mjs start",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "package": "node scripts/package.mjs",
+    "release:test": "node scripts/release-test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
