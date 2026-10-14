@@ -1,5 +1,5 @@
 import type { ReportBuilder } from './engine';
-import { customerActivity, customerAging, customerSummary, itemsBought, paymentBehaviour } from './customer-reports';
+import { balancesOnDate, customerActivity, customerAging, customerSummary, itemsBought, paymentBehaviour } from './customer-reports';
 import {
   assetRegister,
   cashBankBook,
@@ -16,6 +16,7 @@ import { dayBook, moneyBook, priceList, salesByItem, stockOnHand } from './opera
 
 /** Report key (see REPORTS in the shared package) → the function that builds it. */
 export const BUILDERS: Record<string, ReportBuilder> = {
+  balances: balancesOnDate,
   'customer-summary': customerSummary,
   'customer-aging': customerAging,
   'payment-behaviour': paymentBehaviour,

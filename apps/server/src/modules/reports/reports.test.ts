@@ -141,6 +141,58 @@ describe('customer reports', () => {
     expect(a.totals).toMatchObject({ not_due_paisa: 1_075_000, d31_60_paisa: 90_000, total_paisa: 1_165_000 });
   });
 
+  it('balances on a date: every customer and supplier at the end of the day', async () => {
+    const sep = await report('operator', 'balances', 'as_of=2026-09-30');
+    expect(sep.subtitle).toMatch(/30 Sep 2026/);
+    expect(sep.rows.map((r) => [r.name, r.receivable_paisa ?? null, r.payable_paisa ?? null])).toEqual([
+      ['Customers', null, null],
+      ['Ahmed Khan', 900_000, null],
+      ['Bilal Traders', 90_000, null],
+      ['Customers total (2)', 990_000, 0],
+      ['Suppliers', null, null],
+      ['Popular Plastics', null, 8_800_000], // 100 × Rs 880
+      ['Suppliers total (1)', 0, 8_800_000],
+    ]);
+    expect(sep.totals).toEqual({ receivable_paisa: 990_000, payable_paisa: 8_800_000 });
+    expect(sep.summary.map((s) => [s.label, s.value])).toEqual([
+      ['Customers owe us', 990_000],
+      ['Customer advances', 0],
+      ['We owe suppliers', 8_800_000],
+      ['Owed to us less what we owe', 990_000 - 8_800_000],
+    ]);
+
+    // Today: Ahmed's second sale, return, write-off and its reversal.
+    expect(row(await report('operator', 'balances'), 'Ahmed Khan')).toMatchObject({ receivable_paisa: 1_075_000, last_entry: '2026-10-09' });
+
+    // Before Ahmed and the supplier had any entries: only Bilal, even with zero balances shown
+    // (the others were added later, on 2026-10-10).
+    const aug = await report('operator', 'balances', 'as_of=2026-08-15&show=all');
+    expect(aug.rows.map((r) => r.name)).toEqual(['Customers', 'Bilal Traders', 'Customers total (1)']);
+  });
+
+  it('balances on a date: advances, filters and order', async () => {
+    await shop.ok('operator', 'POST', '/api/payments/receipts', { customer_id: bilal.id, date: '2026-10-10', amount_paisa: 100_000, method: 'cash' });
+    await shop.ok('operator', 'POST', '/api/payments/supplier', { supplier_id: shop.supplierId, date: '2026-10-10', amount_paisa: 1_000_000, method: 'bank' });
+    const now = await report('operator', 'balances', 'group_by=balance');
+    // Bilal paid Rs 1,000 against Rs 900: a Rs 100 advance, which we owe him.
+    expect(row(now, 'Bilal Traders')).toMatchObject({ receivable_paisa: null, payable_paisa: 10_000, note: 'Advance' });
+    expect(row(now, 'Popular Plastics')).toMatchObject({ payable_paisa: 7_800_000, type: 'Supplier' });
+    expect(now.rows.map((r) => r.name).slice(0, 3)).toEqual(['Customers', 'Ahmed Khan', 'Bilal Traders']);
+    expect(now.summary.find((s) => s.label === 'Customer advances')?.value).toBe(10_000);
+    // The day before, Bilal still owed the invoice.
+    expect(row(await report('operator', 'balances', 'as_of=2026-10-09'), 'Bilal Traders')).toMatchObject({ receivable_paisa: 90_000, payable_paisa: null });
+
+    const retail = await report('operator', 'balances', 'party=customers&type=retailer');
+    expect(retail.rows.map((r) => r.name)).toEqual(['Customers', 'Bilal Traders', 'Customers total (1)']);
+    expect(retail.summary.map((s) => s.label)).toEqual(['Customers owe us', 'Customer advances']);
+    const sup = await report('operator', 'balances', 'party=suppliers');
+    expect(sup.rows.map((r) => r.name)).toEqual(['Suppliers', 'Popular Plastics', 'Suppliers total (1)']);
+
+    const csv = await shop.call('operator', 'GET', '/api/reports/balances?format=csv&as_of=2026-09-30');
+    expect(csv.body).toContain('They owe us (Rs)');
+    expect(csv.body).toContain('Bilal Traders');
+  });
+
   it('payment behaviour: days to pay, on time and the longest delay', async () => {
     // Bilal pays on 2026-09-10: 40 days after the invoice, 10 days late.
     await shop.ok('operator', 'POST', '/api/payments/receipts', { customer_id: bilal.id, date: '2026-09-10', amount_paisa: 90_000, method: 'cash' });

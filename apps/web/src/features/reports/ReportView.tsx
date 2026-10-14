@@ -68,6 +68,7 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [asOf, setAsOf] = useState('');
+  const [party, setParty] = useState('all');
   const [type, setType] = useState('');
   const [city, setCity] = useState('');
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -90,6 +91,7 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
     from: has('period') ? from : undefined,
     to: has('period') ? to : undefined,
     as_of: has('as_of') ? asOf : undefined,
+    party: has('party') ? party : undefined,
     type: has('type') ? type : undefined,
     city: has('city') ? city : undefined,
     customer_id: has('customer') ? customer?.id : undefined,
@@ -153,6 +155,13 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
             <label className="text-sm">
               On <Input type="date" className="w-40" value={asOf} max={today} onChange={(e) => setAsOf(e.target.value)} aria-label="As of date" />
             </label>
+          )}
+          {has('party') && (
+            <NativeSelect className="w-56" value={party} onChange={(e) => setParty(e.target.value)} aria-label="Customers or suppliers">
+              <option value="all">Customers and suppliers</option>
+              <option value="customers">Customers only</option>
+              <option value="suppliers">Suppliers only</option>
+            </NativeSelect>
           )}
           {has('fiscal_year') && (
             <>

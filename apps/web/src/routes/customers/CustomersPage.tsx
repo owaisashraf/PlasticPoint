@@ -1,5 +1,5 @@
 import { formatPhone } from '@shopledger/shared';
-import { Search, UserPlus } from 'lucide-react';
+import { CalendarDays, Search, UserPlus } from 'lucide-react';
 import { useDeferredValue, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Balance, CustomerStatusBadge } from '@/components/badges';
@@ -38,6 +38,11 @@ export function CustomersPage() {
         title="Customers"
         actions={
           <>
+            {can('reports.operational') && (
+              <Button variant="outline" onClick={() => navigate('/reports/balances')}>
+                <CalendarDays /> Balances on a date
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setPicking(true)} title="F2">
               <Search /> Find <kbd className="text-xs opacity-70">F2</kbd>
             </Button>

@@ -20,6 +20,8 @@ Warnings about overdue invoices or the credit limit do not stop the sale — the
 
 **Overdue** — everyone who is late, longest first (amber, orange, red). Use the chat icon to send a **WhatsApp reminder** and the page icon for a statement.
 
+**Balances on a date** — Customers → **Balances on a date** (or Reports). Pick any date to see what every customer owed and what we owed the supplier at the end of that day, with totals. Print it, save it as PDF or export it to CSV.
+
 **WhatsApp** — the chat opens with the message ready. The PDF is saved on the laptop: press **Open folder** and drag the file into the chat, then press Send. If the customer has no number, ShopLedger asks you to add it.
 
 **Mistakes** — you can **Edit** your own documents on the same day, with a reason. For anything older, ask the owner. Nothing is ever deleted: every change is recorded.

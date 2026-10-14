@@ -57,7 +57,7 @@ export function monthRange(month: string): { from: string; to: string } {
 
 // --- The catalogue ----------------------------------------------------------------------
 
-export const REPORT_PARAMS = ['period', 'as_of', 'type', 'city', 'customer', 'group_by', 'category', 'expense_category', 'method', 'inactive_days', 'show', 'fiscal_year', 'compare'] as const;
+export const REPORT_PARAMS = ['period', 'as_of', 'party', 'type', 'city', 'customer', 'group_by', 'category', 'expense_category', 'method', 'inactive_days', 'show', 'fiscal_year', 'compare'] as const;
 export type ReportParam = (typeof REPORT_PARAMS)[number];
 
 export interface ReportDef {
@@ -77,6 +77,23 @@ export interface ReportDef {
 
 export const REPORTS: ReportDef[] = [
   // 11.1 Customer reports (profit columns only for finance.view)
+  {
+    key: 'balances',
+    title: 'Balances on a date',
+    group: 'customer',
+    permission: 'reports.operational',
+    description: 'Every customer’s and supplier’s balance on any date you pick.',
+    params: ['as_of', 'party', 'type', 'city', 'show', 'group_by'],
+    show: [
+      { value: 'owing', label: 'Hide zero balances' },
+      { value: 'all', label: 'Show zero balances' },
+    ],
+    groupBy: [
+      { value: 'name', label: 'Name' },
+      { value: 'balance', label: 'Balance, largest first' },
+    ],
+    landscape: true,
+  },
   { key: 'customer-summary', title: 'Customer summary', group: 'customer', permission: 'reports.operational', description: 'Sales, returns, receipts, write-offs, balance and average discount per customer.', params: ['period', 'type', 'city'], landscape: true },
   { key: 'customer-aging', title: 'Customer aging', group: 'customer', permission: 'reports.operational', description: 'What each customer owes, by how long it is past due.', params: ['type', 'city'], landscape: true },
   { key: 'payment-behaviour', title: 'Payment behaviour', group: 'customer', permission: 'reports.operational', description: 'Average days to pay, invoices paid on time and the longest delay.', params: ['period', 'type', 'city'] },
@@ -189,6 +206,8 @@ export const reportQuerySchema = z.object({
   from: businessDateSchema.optional(),
   to: businessDateSchema.optional(),
   as_of: businessDateSchema.optional(),
+  /** Balances on a date: customers, suppliers or both. */
+  party: z.enum(['all', 'customers', 'suppliers']).default('all'),
   type: z.enum(CUSTOMER_TYPES).optional(),
   city: z.string().trim().max(60).optional(),
   customer_id: z.coerce.number().int().positive().optional(),

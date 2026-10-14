@@ -634,6 +634,13 @@ Every report has a date-range filter where it makes sense, and can be shown on s
    - Inactive customers (no purchase in N days).
    - New customers in the period.
 7. **Overdue report:** the printable version of the Overdue tab.
+8. **Balances on a date:** a bird's-eye view of every customer's and supplier's balance at the end of any date the user picks (default today).
+   - Balance = Σ ledger entries dated on or before that date (same signs as 8.3). Calculated, never stored.
+   - Two sections, Customers then Suppliers, each with a subtotal. Columns: code, name, type, city, phone, last entry date, note (Advance / Bad debt / Deactivated), **They owe us**, **We owe them**. A customer advance goes under "We owe them"; a supplier advance under "They owe us".
+   - Key figures: customers owe us, customer advances, we owe suppliers, and owed to us less what we owe.
+   - Filters: customers / suppliers / both; customer type and city (customers only); hide or include zero balances; sort by name or largest balance. Parties created after the date with no entries by then are left out.
+   - On screen, print/PDF and CSV. All roles (`reports.operational`): it shows balances only, never cost or profit. Also opened from a button on the Customers list.
+   - It shows the records as they stand now: a document edited or voided later changes the past balance. Change History holds the old versions.
 
 ### 11.2 Operational reports (all roles)
 - Daily sales and purchases book.

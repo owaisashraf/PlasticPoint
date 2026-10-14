@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm';
-import type { ReportRow } from '@shopledger/shared';
+import { formatPhone, type ReportRow } from '@shopledger/shared';
 import { roundDiv } from '../../lib/money';
 import { openItemsWithAge } from '../../lib/overdue';
 import { col, daysBetween, filterText, period, periodText, subtitle, total, type ReportBuilder, type ReportCtx } from './engine';
@@ -364,5 +364,136 @@ export const customerActivity: ReportBuilder = (ctx) => {
     totals: null,
     summary: [{ label: 'Customers', value: list.length, kind: 'int' }],
     notes: [],
+  };
+};
+
+// --- Balances on a date ------------------------------------------------------------------
+
+interface PartyBalanceRow {
+  id: number;
+  code: string | null;
+  name: string;
+  type: string | null;
+  city: string | null;
+  phone: string | null;
+  status: string;
+  balance: number;
+  last_entry: string | null;
+}
+
+/**
+ * Every customer's and supplier's balance at the end of a chosen day, from
+ * the ledger entries dated on or before it (CLAUDE.md 11.1 #8). Two columns
+ * so the totals mean something: "They owe us" (customer balances, supplier
+ * advances) and "We owe them" (supplier balances, customer advances).
+ * Type and city narrow the customers only.
+ */
+export const balancesOnDate: ReportBuilder = (ctx) => {
+  const asOf = ctx.q.as_of ?? ctx.today;
+  const showAll = ctx.q.show === 'all';
+  const byBalance = ctx.q.group_by === 'balance';
+  // A party that did not exist yet on the day is left out, unless it already has entries (an opening balance).
+  const existed = (createdAt: SQL) => sql`(date(${createdAt}, '+5 hours') <= ${asOf} OR e.n > 0)`;
+  const ledger = (partyType: 'customer' | 'supplier') => sql`
+    SELECT party_id, count(*) AS n, max(date) AS last_entry,
+           ${partyType === 'customer' ? sql`sum(debit_paisa) - sum(credit_paisa)` : sql`sum(credit_paisa) - sum(debit_paisa)`} AS balance
+    FROM ledger_entries WHERE party_type = ${partyType} AND date <= ${asOf} GROUP BY party_id`;
+
+  const customerConds: SQL[] = [existed(sql`c.created_at`)];
+  if (ctx.q.type) customerConds.push(sql`c.type = ${ctx.q.type}`);
+  if (ctx.q.city) customerConds.push(sql`lower(c.city) = lower(${ctx.q.city})`);
+  const customers =
+    ctx.q.party === 'suppliers'
+      ? []
+      : ctx.db.all<PartyBalanceRow>(sql`
+          SELECT c.id, c.code, c.name, c.type, c.city, c.phone, c.status, coalesce(e.balance, 0) AS balance, e.last_entry
+          FROM customers c LEFT JOIN (${ledger('customer')}) e ON e.party_id = c.id
+          WHERE ${sql.join(customerConds, sql` AND `)}`);
+  const suppliers =
+    ctx.q.party === 'customers'
+      ? []
+      : ctx.db.all<PartyBalanceRow>(sql`
+          SELECT s.id, NULL AS code, s.name, NULL AS type, NULL AS city, s.phone,
+                 CASE WHEN s.active THEN 'active' ELSE 'inactive' END AS status, coalesce(e.balance, 0) AS balance, e.last_entry
+          FROM suppliers s LEFT JOIN (${ledger('supplier')}) e ON e.party_id = s.id
+          WHERE ${existed(sql`s.created_at`)}`);
+
+  const order = (list: PartyBalanceRow[]) =>
+    list
+      .filter((r) => showAll || r.balance !== 0)
+      .sort((a, b) => (byBalance ? Math.abs(b.balance) - Math.abs(a.balance) : 0) || a.name.localeCompare(b.name) || a.id - b.id);
+  const note = (r: PartyBalanceRow, advance: boolean) =>
+    [advance ? 'Advance' : null, r.status === 'bad_debt' ? 'Bad debt' : r.status === 'inactive' ? 'Deactivated' : null].filter(Boolean).join(' · ');
+
+  const rows: ReportRow[] = [];
+  const sums = { customersOwe: 0, customerAdvances: 0, weOweSuppliers: 0, supplierAdvances: 0 };
+  const section = (title: string, list: PartyBalanceRow[], kind: 'customer' | 'supplier') => {
+    if (!list.length) return;
+    rows.push({ code: null, name: title, _strong: 1 });
+    let owesUs = 0;
+    let weOwe = 0;
+    for (const r of list) {
+      // Customers: positive = they owe us. Suppliers: positive = we owe them.
+      const theyOweUs = kind === 'customer' ? Math.max(r.balance, 0) : Math.max(-r.balance, 0);
+      const weOweThem = kind === 'customer' ? Math.max(-r.balance, 0) : Math.max(r.balance, 0);
+      owesUs += theyOweUs;
+      weOwe += weOweThem;
+      rows.push({
+        code: r.code,
+        name: r.name,
+        type: kind === 'customer' ? typeLabel(r.type ?? '') : 'Supplier',
+        city: r.city,
+        phone: r.phone ? formatPhone(r.phone) : null,
+        last_entry: r.last_entry,
+        note: note(r, r.balance < 0),
+        receivable_paisa: theyOweUs || null,
+        payable_paisa: weOweThem || null,
+        _link: kind === 'customer' ? `/customers/${r.id}` : null,
+      });
+    }
+    rows.push({ code: null, name: `${title} total (${list.length})`, receivable_paisa: owesUs, payable_paisa: weOwe, _strong: 1 });
+    if (kind === 'customer') {
+      sums.customersOwe += owesUs;
+      sums.customerAdvances += weOwe;
+    } else {
+      sums.weOweSuppliers += weOwe;
+      sums.supplierAdvances += owesUs;
+    }
+  };
+  section('Customers', order(customers), 'customer');
+  section('Suppliers', order(suppliers), 'supplier');
+
+  const owedToUs = sums.customersOwe + sums.supplierAdvances;
+  const weOwe = sums.weOweSuppliers + sums.customerAdvances;
+  const partyText = ctx.q.party === 'customers' ? 'Customers' : ctx.q.party === 'suppliers' ? 'Suppliers' : null;
+  return {
+    subtitle: subtitle(`At the end of ${periodText({ from: asOf, to: asOf })}`, partyText, filterText(ctx), showAll ? 'Including zero balances' : null),
+    columns: [
+      col('code', 'Code'),
+      col('name', 'Name'),
+      col('type', 'Type'),
+      col('city', 'City'),
+      col('phone', 'Phone'),
+      col('last_entry', 'Last entry', 'date'),
+      col('note', 'Note'),
+      col('receivable_paisa', 'They owe us', 'money'),
+      col('payable_paisa', 'We owe them', 'money'),
+    ],
+    rows,
+    totals: rows.length ? { receivable_paisa: owedToUs, payable_paisa: weOwe } : null,
+    summary: [
+      ...(ctx.q.party !== 'suppliers'
+        ? [
+            { label: 'Customers owe us', value: sums.customersOwe, kind: 'money' as const },
+            { label: 'Customer advances', value: sums.customerAdvances, kind: 'money' as const },
+          ]
+        : []),
+      ...(ctx.q.party !== 'customers' ? [{ label: 'We owe suppliers', value: sums.weOweSuppliers, kind: 'money' as const }] : []),
+      ...(ctx.q.party === 'all' ? [{ label: 'Owed to us less what we owe', value: owedToUs - weOwe, kind: 'money' as const }] : []),
+    ],
+    notes: [
+      'Balances from every entry dated on or before this day. A document voided or edited later is shown as it stands now.',
+      ...(ctx.q.type || ctx.q.city ? ['Type and city apply to customers only.'] : []),
+    ],
   };
 };

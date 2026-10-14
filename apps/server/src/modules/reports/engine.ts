@@ -137,6 +137,8 @@ export async function reportPdf(r: ReportResult, def: ReportDef, settings: Setti
         } as Content,
       ]
     : [];
+  // The name column takes the spare width (not a short code before it).
+  const wide = Math.max(0, r.columns.findIndex((c) => c.key === 'name'));
   const doc: TDocumentDefinitions = {
     pageSize: 'A4',
     pageOrientation: def.landscape || r.columns.length > 8 ? 'landscape' : 'portrait',
@@ -148,7 +150,7 @@ export async function reportPdf(r: ReportResult, def: ReportDef, settings: Setti
       documentHeader(settings, r.title.toUpperCase(), r.subtitle),
       ...summary,
       r.rows.length
-        ? { table: { headerRows: 1, widths: r.columns.map((_, i) => (i === 0 ? '*' : 'auto')), body }, layout: 'lightHorizontalLines' }
+        ? { table: { headerRows: 1, widths: r.columns.map((_, i) => (i === wide ? '*' : 'auto')), body }, layout: 'lightHorizontalLines' }
         : { text: 'Nothing to show for this period.', italics: true },
     ],
   };
