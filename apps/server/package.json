@@ -1,6 +1,6 @@
 {
   "name": "@shopledger/server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "@fastify/cookie": "11.1.2",
     "@fastify/static": "10.1.5",
     "@fastify/swagger": "9.9.1",
-    "@shopledger/shared": "0.2.0",
+    "@shopledger/shared": "0.2.1",
     "bcryptjs": "3.0.3",
     "better-sqlite3": "12.11.1",
     "croner": "10.0.1",
