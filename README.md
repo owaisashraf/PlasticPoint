@@ -1,0 +1,2 @@
+# PlasticPoint
+Shop ledger application
