@@ -19,7 +19,7 @@ import {
   type WhatsAppValues,
 } from '@shopledger/shared';
 import type { AppConfig } from '../../config';
-import { writeTx, type DB } from '../../db/client';
+import { writeTx, type DB, type DbOrTx } from '../../db/client';
 import { users, whatsapp_log } from '../../db/schema';
 import { writeAudit } from '../../lib/audit';
 import { businessToday, nowIso } from '../../lib/dates';
@@ -76,6 +76,7 @@ interface Prepared {
 const MESSAGE_KEY = { invoice: 'whatsapp_invoice_message', statement: 'whatsapp_statement_message', reminder: 'whatsapp_reminder_message' } as const;
 const TEMPLATE_KEY = { invoice: 'whatsapp_cloud_invoice_template', statement: 'whatsapp_cloud_statement_template', reminder: 'whatsapp_cloud_reminder_template' } as const;
 const PARAMS_KEY = { invoice: 'whatsapp_cloud_invoice_params', statement: 'whatsapp_cloud_statement_params', reminder: 'whatsapp_cloud_reminder_params' } as const;
+const KIND_PLURAL = { invoice: 'invoices', statement: 'statements', reminder: 'reminders' } as const;
 
 export function cloudConfig(s: Settings): CloudApiConfig {
   return { phoneNumberId: s.whatsapp_cloud_phone_number_id, token: s.whatsapp_cloud_token, version: s.whatsapp_cloud_api_version, language: s.whatsapp_cloud_language };
@@ -104,8 +105,13 @@ function toDataRelative(config: AppConfig, abs: string): string {
 export function createWhatsAppSender(deps: WhatsAppDeps): WhatsAppSender {
   const { db, config, user } = deps;
 
-  function log(p: Prepared, mode: Settings['whatsapp_mode'], fields: { status: 'opened' | 'sent' | 'failed'; phone: string | null; pdf?: string | null; message_id?: string | null; error?: string | null }) {
-    return db
+  function log(
+    p: Prepared,
+    mode: Settings['whatsapp_mode'],
+    fields: { status: 'opened' | 'sent' | 'failed'; phone: string | null; pdf?: string | null; message_id?: string | null; error?: string | null },
+    target: DbOrTx = db,
+  ) {
+    return target
       .insert(whatsapp_log)
       .values({
         at: nowIso(),
@@ -160,23 +166,7 @@ export function createWhatsAppSender(deps: WhatsAppDeps): WhatsAppSender {
 
     // The log row and the audit 'share' row are written together.
     const row = writeTx(db, (tx) => {
-      const r = tx
-        .insert(whatsapp_log)
-        .values({
-          at: nowIso(),
-          user_id: user.id,
-          customer_id: p.customer.id,
-          kind: p.kind,
-          sale_id: p.sale?.id ?? null,
-          doc_no: p.sale?.doc_no ?? null,
-          mode,
-          status,
-          phone,
-          pdf_file: pdfPath ? toDataRelative(config, pdfPath) : null,
-          message_id: messageId,
-        })
-        .returning({ id: whatsapp_log.id, at: whatsapp_log.at })
-        .get();
+      const r = log(p, mode, { status, phone, pdf: pdfPath, message_id: messageId }, tx);
       writeAudit(tx, auditActor(user), {
         action: 'share',
         entity: p.audit.entity,
@@ -274,7 +264,7 @@ export function createWhatsAppSender(deps: WhatsAppDeps): WhatsAppSender {
     const cfg = cloudConfig(settings);
     const template = settings[TEMPLATE_KEY[p.kind]];
     if (!cfg.phoneNumberId || !cfg.token) throw new CloudApiError('The WhatsApp Cloud API is not set up. Add the phone number ID and access token in Settings → WhatsApp.');
-    if (!template) throw new CloudApiError(`No WhatsApp template name is set for ${p.kind === 'invoice' ? 'invoices' : p.kind === 'statement' ? 'statements' : 'reminders'}. Add it in Settings → WhatsApp.`);
+    if (!template) throw new CloudApiError(`No WhatsApp template name is set for ${KIND_PLURAL[p.kind]}. Add it in Settings → WhatsApp.`);
     const names = parseWhatsAppParams(settings[PARAMS_KEY[p.kind]]) ?? [];
     const document = pdfPath && p.pdfName ? { id: await uploadPdf(fetchFn, cfg, readFileSync(pdfPath), p.pdfName), filename: p.pdfName } : undefined;
     return sendTemplate(fetchFn, cfg, { to: waMeNumber(phone), template, params: names.map((n) => p.values[n]), document });

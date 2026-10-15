@@ -7,7 +7,8 @@ export const DEFAULT_PHONE_COUNTRY = 'PK' as const;
 export function normalizePhone(input: string): string | null {
   const text = input.trim();
   if (!text) return null;
-  const withPlus = /^92\d{10}$/.test(text.replace(/\D/g, '')) && !text.startsWith('0') ? `+${text.replace(/\D/g, '')}` : text;
+  const digits = text.replace(/\D/g, '');
+  const withPlus = /^92\d{10}$/.test(digits) && !text.startsWith('0') ? `+${digits}` : text;
   const parsed = parsePhoneNumberFromString(withPlus, DEFAULT_PHONE_COUNTRY);
   if (!parsed || !parsed.isValid()) return null;
   return parsed.number;

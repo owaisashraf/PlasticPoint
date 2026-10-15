@@ -143,11 +143,13 @@ export const bulkUpdateSchema = z.object({
 });
 export type BulkUpdateInput = z.input<typeof bulkUpdateSchema>;
 
+const bulkUpdatePricing = z.object({ list_price_paisa: z.number().int(), supplier_margin_bp: z.number().int(), default_customer_discount_bp: z.number().int() });
+
 export const bulkUpdateRowSchema = z.object({
   product_id: z.number().int(),
   item_code: z.string(),
   name: z.string(),
-  before: z.object({ list_price_paisa: z.number().int(), supplier_margin_bp: z.number().int(), default_customer_discount_bp: z.number().int() }),
-  after: z.object({ list_price_paisa: z.number().int(), supplier_margin_bp: z.number().int(), default_customer_discount_bp: z.number().int() }),
+  before: bulkUpdatePricing,
+  after: bulkUpdatePricing,
 });
 export type BulkUpdateRow = z.infer<typeof bulkUpdateRowSchema>;

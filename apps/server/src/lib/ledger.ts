@@ -60,6 +60,11 @@ export function removeEntriesForSource(tx: DbOrTx, sourceType: string, sourceId:
 }
 
 /** Positive means "owed to us" for customers and "owed by us" for suppliers. */
+function signedAmount(partyType: PartyType, debit: number, credit: number): number {
+  return partyType === 'customer' ? debit - credit : credit - debit;
+}
+
+/** SQL sum of signedAmount over the selected entries. */
 function signedSql(partyType: PartyType) {
   return partyType === 'customer'
     ? sql<number>`coalesce(sum(${ledger_entries.debit_paisa}) - sum(${ledger_entries.credit_paisa}), 0)`
@@ -123,8 +128,7 @@ export function getOpeningBalance(db: DbOrTx, partyType: PartyType, partyId: num
     )
     .get();
   if (!row) return { amount_paisa: 0, date: null };
-  const amount = partyType === 'customer' ? row.d - row.c : row.c - row.d;
-  return { amount_paisa: amount, date: row.date };
+  return { amount_paisa: signedAmount(partyType, row.d, row.c), date: row.date };
 }
 
 /**
@@ -149,7 +153,7 @@ export function statement(db: DbOrTx, partyType: PartyType, partyId: number, ran
 
   let running = opening;
   const lines = rows.map((r) => {
-    running += partyType === 'customer' ? r.debit_paisa - r.credit_paisa : r.credit_paisa - r.debit_paisa;
+    running += signedAmount(partyType, r.debit_paisa, r.credit_paisa);
     return {
       id: r.id,
       date: r.date,

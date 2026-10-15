@@ -68,7 +68,7 @@ function openItemsSql(today: string, customerIds?: readonly number[]): SQL {
     )
     SELECT customer_id, sale_id, doc_no, date, due_date, total_paisa, paid_paisa,
            total_paisa - paid_paisa AS outstanding_paisa,
-           CAST(julianday(${today}) - julianday(due_date) AS INTEGER) AS days_overdue
+           ${daysPastDueSql(sql`due_date`, today)} AS days_overdue
     FROM items
     WHERE total_paisa - paid_paisa > 0 ${only}`;
 }

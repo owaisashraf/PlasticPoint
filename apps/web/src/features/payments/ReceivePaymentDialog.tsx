@@ -11,14 +11,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input, NativeSelect } from '@/components/ui/input';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import { ChangeReasonField, changeReasonOk } from '@/features/documents';
-import { api, ApiError, errorMessage } from '@/lib/api';
+import { api, firstFieldError } from '@/lib/api';
 import { useHotkey } from '@/lib/useHotkey';
 import { cn, todayKarachi } from '@/lib/utils';
 import { useOpenItems, useRefreshAfterMoney } from './api';
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', bank: 'Bank transfer', cheque: 'Cheque', online: 'Online / wallet' };
 
-const itemKey = (i: OpenItem) => (i.sale_id === null ? 'opening' : String(i.sale_id));
+/** Open items and allocations are keyed by invoice; the opening balance has no invoice. */
+const itemKey = (i: { sale_id: number | null }) => (i.sale_id === null ? 'opening' : String(i.sale_id));
 
 /** FIFO preview: how `amount` would pay the open items, oldest first. */
 function fifoPreview(items: OpenItem[], amount: number): Map<string, number> {
@@ -68,7 +69,7 @@ export function ReceivePaymentDialog({
   const pickedBefore = (payment?.allocations ?? []).filter((a) => a.is_manual);
   const [mode, setMode] = useState<'fifo' | 'manual'>(saleId || pickedBefore.length ? 'manual' : 'fifo');
   const [manual, setManual] = useState<Record<string, string>>(
-    Object.fromEntries(pickedBefore.map((a) => [a.sale_id === null ? 'opening' : String(a.sale_id), paisaToInput(a.amount_paisa)])),
+    Object.fromEntries(pickedBefore.map((a) => [itemKey(a), paisaToInput(a.amount_paisa)])),
   );
   const [changeReason, setChangeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +128,7 @@ export function ReceivePaymentDialog({
       onSaved?.(saved);
       onClose();
     },
-    onError: (e) => setError(e instanceof ApiError && e.fields ? Object.values(e.fields)[0] ?? errorMessage(e) : errorMessage(e)),
+    onError: (e) => setError(firstFieldError(e)),
   });
 
   const submit = () => {
@@ -279,7 +280,7 @@ export function ReceivePaymentDialog({
                 <span>
                   Applied <span className="amount font-semibold">{formatPaisa(appliedTotal)}</span>
                 </span>
-                <span className={advance < 0 ? 'font-semibold text-destructive' : advance > 0 ? 'text-blue-700' : ''}>
+                <span className={cn(advance < 0 && 'font-semibold text-destructive', advance > 0 && 'text-blue-700')}>
                   {advance < 0 ? `Picked ${formatPaisa(-advance)} more than received` : `Kept as advance ${formatPaisa(advance)}`}
                 </span>
               </div>

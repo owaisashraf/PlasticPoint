@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { ChangeReasonField, changeReasonOk } from '@/features/documents';
-import { api, ApiError, errorMessage } from '@/lib/api';
+import { api, firstFieldError } from '@/lib/api';
 import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
 import { METHOD_LABEL } from './ReceivePaymentDialog';
@@ -51,7 +51,7 @@ export function PaySupplierDialog({ suppliers, payment, onClose }: { suppliers: 
       toast.success(payment ? `Payment ${saved.doc_no} updated.` : `Payment ${saved.doc_no} saved.`);
       onClose();
     },
-    onError: (e) => setError(e instanceof ApiError && e.fields ? Object.values(e.fields)[0] ?? errorMessage(e) : errorMessage(e)),
+    onError: (e) => setError(firstFieldError(e)),
   });
 
   return (

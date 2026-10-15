@@ -172,13 +172,15 @@ function toRows(db: DbOrTx, raw: { a: AuditRow; user_name: string | null }[]): C
   });
 }
 
+/** Audit rows with the name of the user who made them. */
+function selectChanges(db: DbOrTx) {
+  return db.select({ a: audit_log, user_name: users.display_name }).from(audit_log).leftJoin(users, eq(users.id, audit_log.user_id));
+}
+
 export function listChanges(db: DB, q: Query): { rows: ChangeRow[]; total: number } {
   const where = conditions(q);
   const total = db.select({ n: sql<number>`count(*)` }).from(audit_log).where(where).get()?.n ?? 0;
-  const raw = db
-    .select({ a: audit_log, user_name: users.display_name })
-    .from(audit_log)
-    .leftJoin(users, eq(users.id, audit_log.user_id))
+  const raw = selectChanges(db)
     .where(where)
     .orderBy(desc(audit_log.id))
     .limit(q.limit)
@@ -197,7 +199,7 @@ const LINE_KEYS: Record<string, (l: Snap) => string> = {
 const lineLabel = (l: Snap) => [l.item_code, l.color, l.size].filter(Boolean).join(' ') || String(l.id ?? '');
 
 export function getChange(db: DB, id: number): ChangeDetail {
-  const r = db.select({ a: audit_log, user_name: users.display_name }).from(audit_log).leftJoin(users, eq(users.id, audit_log.user_id)).where(eq(audit_log.id, id)).get();
+  const r = selectChanges(db).where(eq(audit_log.id, id)).get();
   if (!r) throw notFound('Change not found.');
   const [row] = toRows(db, [r]);
   const before = parse(r.a.before_json);
@@ -214,10 +216,7 @@ export function getChange(db: DB, id: number): ChangeDetail {
 
 /** Every change to one document, oldest first: its versions from creation to now. */
 export function documentTimeline(db: DB, entity: string, entityId: number): ChangeRow[] {
-  const raw = db
-    .select({ a: audit_log, user_name: users.display_name })
-    .from(audit_log)
-    .leftJoin(users, eq(users.id, audit_log.user_id))
+  const raw = selectChanges(db)
     .where(and(eq(audit_log.entity, entity), eq(audit_log.entity_id, entityId)))
     .orderBy(audit_log.id)
     .all();
@@ -230,7 +229,7 @@ export function reviewChange(db: DB, user: SessionUser, id: number, note: string
     const a = tx.select({ id: audit_log.id }).from(audit_log).where(eq(audit_log.id, id)).get();
     if (!a) throw notFound('Change not found.');
     tx.insert(audit_reviews).values({ audit_id: id, reviewed_by: user.id, reviewed_at: nowIso(), note: note || null }).run();
-    const r = tx.select({ a: audit_log, user_name: users.display_name }).from(audit_log).leftJoin(users, eq(users.id, audit_log.user_id)).where(eq(audit_log.id, id)).get();
+    const r = selectChanges(tx).where(eq(audit_log.id, id)).get();
     return toRows(tx, r ? [r] : [])[0] as ChangeRow;
   });
 }

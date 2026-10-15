@@ -35,6 +35,13 @@ function customersFor(ctx: ReportCtx): Map<number, CustomerRow> {
 
 const typeLabel = (t: string) => (t === 'retailer' ? 'Retailer' : 'Wholesaler');
 
+/** "Bad debt" or "Deactivated" for the note column; nothing for an active party. */
+function statusNote(status: string): string | null {
+  if (status === 'bad_debt') return 'Bad debt';
+  if (status === 'inactive') return 'Deactivated';
+  return null;
+}
+
 // --- Customer summary ------------------------------------------------------------------
 
 export const customerSummary: ReportBuilder = (ctx) => {
@@ -253,11 +260,12 @@ export const itemsBought: ReportBuilder = (ctx) => {
   const p = period(ctx, 'fiscal_year');
   const customers = customersFor(ctx);
   const one = ctx.q.customer_id ? customers.get(ctx.q.customer_id) : undefined;
-  const sold = ctx.db.all<{ customer_id: number; variant_id: number; qty: number; net: number; profit: number }>(sql`
+  type Moved = { customer_id: number; variant_id: number; qty: number; net: number; profit: number };
+  const sold = ctx.db.all<Moved>(sql`
     SELECT s.customer_id, i.variant_id, sum(i.qty) AS qty, sum(i.line_net_paisa) AS net, sum(i.profit_paisa) AS profit
     FROM sale_items i JOIN sales s ON s.id = i.sale_id
     WHERE s.status = 'posted' AND s.date BETWEEN ${p.from} AND ${p.to} GROUP BY s.customer_id, i.variant_id`);
-  const returned = ctx.db.all<{ customer_id: number; variant_id: number; qty: number; net: number; profit: number }>(sql`
+  const returned = ctx.db.all<Moved>(sql`
     SELECT r.customer_id, ri.variant_id, sum(ri.qty) AS qty, sum(ri.line_net_paisa) AS net, sum(ri.profit_reversed_paisa) AS profit
     FROM sales_return_items ri JOIN sales_returns r ON r.id = ri.return_id
     WHERE r.status = 'posted' AND r.date BETWEEN ${p.from} AND ${p.to} GROUP BY r.customer_id, ri.variant_id`);
@@ -267,7 +275,7 @@ export const itemsBought: ReportBuilder = (ctx) => {
       .map((v) => [v.id, v]),
   );
   const rows = new Map<string, ReportRow>();
-  const add = (r: { customer_id: number; variant_id: number; qty: number; net: number; profit: number }, sign: 1 | -1) => {
+  const add = (r: Moved, sign: 1 | -1) => {
     const c = customers.get(r.customer_id);
     const v = variants.get(r.variant_id);
     if (!c || !v) return;
@@ -338,7 +346,7 @@ export const customerActivity: ReportBuilder = (ctx) => {
         days_since_sale: idle,
         last_payment: c.last_payment,
         last_payment_paisa: c.last_payment_paisa,
-        note: [isNew ? 'New' : null, inactive ? `No purchase in ${n}+ days` : null, c.status === 'bad_debt' ? 'Bad debt' : c.status === 'inactive' ? 'Deactivated' : null].filter(Boolean).join(' · '),
+        note: [isNew ? 'New' : null, inactive ? `No purchase in ${n}+ days` : null, statusNote(c.status)].filter(Boolean).join(' · '),
         _new: isNew ? 1 : 0,
         _inactive: inactive ? 1 : 0,
         _link: `/customers/${c.id}`,
@@ -422,8 +430,7 @@ export const balancesOnDate: ReportBuilder = (ctx) => {
     list
       .filter((r) => showAll || r.balance !== 0)
       .sort((a, b) => (byBalance ? Math.abs(b.balance) - Math.abs(a.balance) : 0) || a.name.localeCompare(b.name) || a.id - b.id);
-  const note = (r: PartyBalanceRow, advance: boolean) =>
-    [advance ? 'Advance' : null, r.status === 'bad_debt' ? 'Bad debt' : r.status === 'inactive' ? 'Deactivated' : null].filter(Boolean).join(' · ');
+  const note = (r: PartyBalanceRow, advance: boolean) => [advance ? 'Advance' : null, statusNote(r.status)].filter(Boolean).join(' · ');
 
   const rows: ReportRow[] = [];
   const sums = { customersOwe: 0, customerAdvances: 0, weOweSuppliers: 0, supplierAdvances: 0 };

@@ -12,23 +12,23 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SalesTable } from '@/features/sales/SalesTable';
+import { useCan } from '@/features/auth/useAuth';
+import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
+import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
+import { VoidButton } from '@/features/documents';
+import { OverdueBadge } from '@/features/overdue';
 import { openStatement, useWriteOffs } from '@/features/payments/api';
 import { PaymentsTable } from '@/features/payments/PaymentsTable';
 import { ReceivePaymentDialog } from '@/features/payments/ReceivePaymentDialog';
 import { SalesReturnsTable } from '@/features/payments/SalesReturnsTable';
 import { WriteOffDialog } from '@/features/payments/WriteOffDialog';
-import { VoidButton } from '@/features/documents';
 import { ReportView } from '@/features/reports/ReportView';
-
-const reportDef = (key: string) => REPORTS.find((r) => r.key === key) as ReportDef;
-import { useCan } from '@/features/auth/useAuth';
-import { CUSTOMERS_KEY, useCustomer, useCustomerLedger } from '@/features/customers/api';
-import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
-import { OverdueBadge } from '@/features/overdue';
+import { SalesTable } from '@/features/sales/SalesTable';
 import { LastSent, useWhatsApp, useWhatsAppHistory } from '@/features/whatsapp/WhatsApp';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
+
+const reportDef = (key: string) => REPORTS.find((r) => r.key === key) as ReportDef;
 
 const ENTRY_LABEL: Record<LedgerLine['entry_type'], string> = {
   opening_balance: 'Opening balance',
@@ -300,7 +300,8 @@ function LedgerTab({ id }: { id: number }) {
   const wa = useWhatsApp();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const { data, isPending, isError, error } = useCustomerLedger(id, { from: from || undefined, to: to || undefined });
+  const range = { from: from || undefined, to: to || undefined };
+  const { data, isPending, isError, error } = useCustomerLedger(id, range);
   return (
     <div>
       <div className="mb-3 flex items-end gap-3">
@@ -310,11 +311,11 @@ function LedgerTab({ id }: { id: number }) {
         <label className="text-sm">
           To <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-44" />
         </label>
-        <Button variant="outline" className="ml-auto" onClick={() => openStatement('customers', id, { from: from || undefined, to: to || undefined })}>
+        <Button variant="outline" className="ml-auto" onClick={() => openStatement('customers', id, range)}>
           <FileText /> Statement PDF
         </Button>
         {can('whatsapp.send') && (
-          <Button variant="outline" onClick={() => void wa.send({ kind: 'statement', customerId: id, from: from || undefined, to: to || undefined })} disabled={wa.busy}>
+          <Button variant="outline" onClick={() => void wa.send({ kind: 'statement', customerId: id, ...range })} disabled={wa.busy}>
             <MessageCircle /> Send on WhatsApp
           </Button>
         )}

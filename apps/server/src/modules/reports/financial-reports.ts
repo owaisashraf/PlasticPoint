@@ -19,6 +19,11 @@ function yearOf(ctx: ReportCtx) {
   return fiscalYear(ctx.q.fiscal_year ?? fiscalYearStartOf(ctx.today, startMonth), startMonth);
 }
 
+/** "Fiscal year 2025-26" (or "Calendar year …"), for subtitles. */
+function yearTitle(ctx: ReportCtx, fy: ReturnType<typeof yearOf>): string {
+  return `${ctx.q.calendar ? 'Calendar year' : 'Fiscal year'} ${fy.label}`;
+}
+
 // --- Profit & loss -------------------------------------------------------------------------
 
 /**
@@ -64,7 +69,7 @@ export const profitLoss: ReportBuilder = (ctx) => {
     _kind: l.kind ?? null,
   }));
   return {
-    subtitle: subtitle(`${ctx.q.calendar ? 'Calendar year' : 'Fiscal year'} ${fy.label}`, `${monthRange(fy.months[0] as string).from} – ${fy.end}`),
+    subtitle: subtitle(yearTitle(ctx, fy), `${monthRange(fy.months[0] as string).from} – ${fy.end}`),
     columns,
     rows,
     totals: null,
@@ -170,6 +175,18 @@ export const grossProfit: ReportBuilder = (ctx) => {
 
 // --- Discounts ------------------------------------------------------------------------------
 
+/** Group key and label for the discount report. */
+function discountGroup(groupBy: string): { key: SQL; label: SQL; title: string } {
+  switch (groupBy) {
+    case 'customer':
+      return { key: sql`c.id`, label: sql`c.name`, title: 'Customer' };
+    case 'operator':
+      return { key: sql`s.created_by`, label: sql`coalesce(u.display_name, '—')`, title: 'Operator' };
+    default:
+      return { key: sql`p.id`, label: sql`p.item_code || ' ' || p.name`, title: 'Item' };
+  }
+}
+
 export const discountReport: ReportBuilder = (ctx) => {
   const p = period(ctx, 'month');
   const by = ctx.q.group_by ?? 'item';
@@ -190,12 +207,7 @@ export const discountReport: ReportBuilder = (ctx) => {
       notes: [],
     };
   }
-  const g =
-    by === 'customer'
-      ? { key: sql`c.id`, label: sql`c.name`, title: 'Customer' }
-      : by === 'operator'
-        ? { key: sql`s.created_by`, label: sql`coalesce(u.display_name, '—')`, title: 'Operator' }
-        : { key: sql`p.id`, label: sql`p.item_code || ' ' || p.name`, title: 'Item' };
+  const g = discountGroup(by);
   const rows = ctx.db.all<{ label: string; lines: number; gross: number; disc: number; def_w: number; changed: number }>(sql`
     SELECT max(${g.label}) AS label, count(*) AS lines, sum(i.line_gross_paisa) AS gross, sum(i.line_discount_paisa) AS disc,
            sum(i.line_gross_paisa * i.default_discount_bp) AS def_w, sum(i.discount_overridden) AS changed
@@ -338,7 +350,7 @@ export const depreciationScheduleReport: ReportBuilder = (ctx) => {
   }
   const keys = [...fy.months.map((m) => `m_${m}`), 'total'];
   return {
-    subtitle: `${ctx.q.calendar ? 'Calendar year' : 'Fiscal year'} ${fy.label}`,
+    subtitle: yearTitle(ctx, fy),
     columns: [col('asset', 'Asset'), ...fy.months.map((m) => col(`m_${m}`, monthLabel(m), 'money')), col('total', 'Total', 'money')],
     rows,
     totals: Object.fromEntries(keys.map((k) => [k, total(rows, k)])),
@@ -356,7 +368,8 @@ export const depreciationScheduleReport: ReportBuilder = (ctx) => {
  */
 export const cashBankBook: ReportBuilder = (ctx) => {
   const p = period(ctx, 'month');
-  const book = ctx.q.method === 'cash' ? 'cash' : ctx.q.method ? 'bank' : null;
+  let book: 'cash' | 'bank' | null = null;
+  if (ctx.q.method) book = ctx.q.method === 'cash' ? 'cash' : 'bank';
   const bookOf = (method: string) => (method === 'cash' ? 'Cash' : 'Bank');
   const entries = ctx.db.all<{ date: string; doc_no: string; type: string; party: string | null; method: string; inp: number | null; outp: number | null }>(sql`
     SELECT pm.date, pm.doc_no,

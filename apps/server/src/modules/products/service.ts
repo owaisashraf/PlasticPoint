@@ -208,6 +208,12 @@ function recordPrice(tx: Tx, p: ProductRow, userId: number): void {
     .run();
 }
 
+function loadRow(tx: DbOrTx, id: number): ProductRow {
+  const row = tx.select().from(products).where(eq(products.id, id)).get();
+  if (!row) throw notFound('Product not found.');
+  return row;
+}
+
 function assertItemCodeFree(tx: Tx, itemCode: string, exceptId?: number): void {
   const clash = tx.select({ id: products.id }).from(products).where(eq(products.item_code, itemCode)).get();
   if (clash && clash.id !== exceptId) throw conflict(`Item code ${itemCode} is already used by another product.`);
@@ -277,8 +283,7 @@ export function createProduct(db: DB, user: SessionUser, input: CreateInput): Pr
 export function updateProduct(db: DB, user: SessionUser, id: number, input: UpdateInput): Product {
   try {
     return writeTx(db, (tx) => {
-      const before = tx.select().from(products).where(eq(products.id, id)).get();
-      if (!before) throw notFound('Product not found.');
+      const before = loadRow(tx, id);
 
       const pricingChanged = PRICING_FIELDS.filter((k) => input[k] !== undefined && input[k] !== before[k]);
       if (pricingChanged.length && !can(user, 'pricing.manage')) throw forbidden(PRICE_FORBIDDEN);
@@ -323,9 +328,8 @@ export function updateVariant(db: DB, user: SessionUser, variantId: number, inpu
   return writeTx(db, (tx) => {
     const before = tx.select().from(product_variants).where(eq(product_variants.id, variantId)).get();
     if (!before) throw notFound('Variant not found.');
-    if (input.low_stock_threshold === undefined || input.low_stock_threshold === before.low_stock_threshold) {
-      return loadVariants(tx, before.product_id).find((v) => v.id === variantId) as Variant;
-    }
+    const view = () => loadVariants(tx, before.product_id).find((v) => v.id === variantId) as Variant;
+    if (input.low_stock_threshold === undefined || input.low_stock_threshold === before.low_stock_threshold) return view();
     const after = tx
       .update(product_variants)
       .set({ low_stock_threshold: input.low_stock_threshold, updated_at: nowIso() })
@@ -341,7 +345,7 @@ export function updateVariant(db: DB, user: SessionUser, variantId: number, inpu
       after: { low_stock_threshold: after.low_stock_threshold },
       summary: { changed_fields: ['low_stock_threshold'] },
     });
-    return loadVariants(tx, before.product_id).find((v) => v.id === variantId) as Variant;
+    return view();
   });
 }
 
@@ -358,8 +362,7 @@ export function setProductPricing(
   reason: string,
 ): boolean {
   if (!can(user, 'pricing.manage')) throw forbidden(PRICE_FORBIDDEN);
-  const before = tx.select().from(products).where(eq(products.id, productId)).get();
-  if (!before) throw notFound('Product not found.');
+  const before = loadRow(tx, productId);
   const set: Partial<ProductRow> = {};
   if (changes.list_price_paisa !== undefined && changes.list_price_paisa !== before.list_price_paisa) set.list_price_paisa = changes.list_price_paisa;
   if (changes.supplier_margin_bp !== undefined && changes.supplier_margin_bp !== before.supplier_margin_bp) set.supplier_margin_bp = changes.supplier_margin_bp;
@@ -382,8 +385,12 @@ export function setProductPricing(
 
 // --- Bulk update (owner+) ------------------------------------------------------
 
+function pricingOf(p: ProductRow): BulkUpdateRow['before'] {
+  return { list_price_paisa: p.list_price_paisa, supplier_margin_bp: p.supplier_margin_bp, default_customer_discount_bp: p.default_customer_discount_bp };
+}
+
 function applyChange(p: ProductRow, change: BulkInput['change']): BulkUpdateRow['after'] {
-  const after = { list_price_paisa: p.list_price_paisa, supplier_margin_bp: p.supplier_margin_bp, default_customer_discount_bp: p.default_customer_discount_bp };
+  const after = pricingOf(p);
   switch (change.kind) {
     case 'price_percent':
       after.list_price_paisa = p.list_price_paisa + applyBp(p.list_price_paisa, change.bp);
@@ -419,7 +426,7 @@ export function bulkUpdate(db: DB, user: SessionUser, input: BulkInput): { rows:
     for (const p of target.sort((a, b) => a.item_code.localeCompare(b.item_code))) {
       const after = applyChange(p, input.change);
       if (after.list_price_paisa < 1) throw badRequest(`${p.item_code}: the new price would be zero or less.`);
-      const before = { list_price_paisa: p.list_price_paisa, supplier_margin_bp: p.supplier_margin_bp, default_customer_discount_bp: p.default_customer_discount_bp };
+      const before = pricingOf(p);
       if (JSON.stringify(before) === JSON.stringify(after)) continue;
       rows.push({ product_id: p.id, item_code: p.item_code, name: p.name, before, after });
     }

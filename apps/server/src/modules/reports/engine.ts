@@ -108,7 +108,12 @@ export function reportCsv(r: ReportResult): string {
     if (typeof v === 'number' && kind === 'percent') return bpToPercentString(v);
     return v;
   };
-  const head = r.columns.map((c) => (c.kind === 'money' ? `${c.label} (Rs)` : c.kind === 'percent' ? `${c.label} (%)` : c.label));
+  const headOf = (c: ReportColumn) => {
+    if (c.kind === 'money') return `${c.label} (Rs)`;
+    if (c.kind === 'percent') return `${c.label} (%)`;
+    return c.label;
+  };
+  const head = r.columns.map(headOf);
   const rows = r.rows.map((row) => r.columns.map((c) => csvCell(row[c.key], kindOf(row, c))));
   if (r.totals) rows.push(r.columns.map((c, i) => (i === 0 && r.totals?.[c.key] === undefined ? 'Total' : csvCell(r.totals?.[c.key], c.kind))));
   return toCsv(head, rows);
@@ -139,12 +144,14 @@ export async function reportPdf(r: ReportResult, def: ReportDef, settings: Setti
     : [];
   // The name column takes the spare width (not a short code before it).
   const wide = Math.max(0, r.columns.findIndex((c) => c.key === 'name'));
+  // Wide tables get a smaller font so they fit the page.
+  const fontSize = r.columns.length > 10 ? 7 : 8;
   const doc: TDocumentDefinitions = {
     pageSize: 'A4',
     pageOrientation: def.landscape || r.columns.length > 8 ? 'landscape' : 'portrait',
     pageMargins: [30, 30, 30, 40],
-    defaultStyle: { font: 'Roboto', fontSize: r.columns.length > 10 ? 7 : 8 },
-    styles: { ...baseStyles, th: { bold: true, fontSize: r.columns.length > 10 ? 7 : 8, fillColor: '#eeeeee' }, td: { fontSize: r.columns.length > 10 ? 7 : 8 }, num: { fontSize: r.columns.length > 10 ? 7 : 8, alignment: 'right' } },
+    defaultStyle: { font: 'Roboto', fontSize },
+    styles: { ...baseStyles, th: { bold: true, fontSize, fillColor: '#eeeeee' }, td: { fontSize }, num: { fontSize, alignment: 'right' } },
     footer: documentFooter(r.notes.join(' ')),
     content: [
       documentHeader(settings, r.title.toUpperCase(), r.subtitle),

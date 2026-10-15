@@ -27,6 +27,7 @@ export function AssetDetailPage() {
 
   const schedule = a.schedule ?? [];
   const gain = a.disposal_gain_paisa;
+  const loss = gain !== null && gain < 0;
   return (
     <div className="max-w-5xl">
       <Link to="/assets" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -62,8 +63,8 @@ export function AssetDetailPage() {
         <Stat k={`Depreciated to ${a.as_of}`}>{formatPaisa(a.accumulated_depreciation_paisa)}</Stat>
         <Stat k="Book value">{formatPaisa(a.book_value_paisa)}</Stat>
         {a.status === 'disposed' ? (
-          <Stat k={gain !== null && gain < 0 ? 'Loss on disposal' : 'Gain on disposal'}>
-            <span className={cn(gain !== null && gain < 0 ? 'text-destructive' : 'text-green-800')}>{formatPaisa(Math.abs(gain ?? 0))}</span>
+          <Stat k={loss ? 'Loss on disposal' : 'Gain on disposal'}>
+            <span className={loss ? 'text-destructive' : 'text-green-800'}>{formatPaisa(Math.abs(gain ?? 0))}</span>
           </Stat>
         ) : (
           <Stat k="Monthly depreciation">{a.monthly_depreciation_paisa ? formatPaisa(a.monthly_depreciation_paisa) : '—'}</Stat>
@@ -107,7 +108,7 @@ export function AssetDetailPage() {
               </thead>
               <tbody>
                 {schedule.map((r) => (
-                  <tr key={r.month} className={cn('border-t border-border', r.charge_date <= a.as_of ? '' : 'text-muted-foreground')}>
+                  <tr key={r.month} className={cn('border-t border-border', r.charge_date > a.as_of && 'text-muted-foreground')}>
                     <td className="py-1">{r.month}</td>
                     <td className="amount">{formatPaisa(r.charge_paisa)}</td>
                     <td className="amount">{formatPaisa(r.accumulated_paisa)}</td>

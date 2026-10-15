@@ -38,6 +38,7 @@ export function SaleDetailPage() {
 
   const lines = s.lines ?? [];
   const profit = s.profit_paisa;
+  const returnedProfit = s.returned_profit_paisa ?? 0;
   const anyReturned = lines.some((l) => l.returned_qty > 0);
   const canReturn = can('returns.create') && s.status === 'posted' && lines.some((l) => l.qty > l.returned_qty);
   const canPay = can('payments.create') && s.status === 'posted' && s.outstanding_paisa > 0;
@@ -211,10 +212,10 @@ export function SaleDetailPage() {
                   {s.returns.map((r) => (
                     <li key={r.id} className="flex flex-wrap items-center gap-2">
                       <span className="font-mono font-semibold">{r.doc_no}</span>
-                  {r.status === 'void' && <Badge variant="grey">VOID</Badge>}
-                  <span>
-                    · {r.date} · {r.reason}
-                  </span>
+                      {r.status === 'void' && <Badge variant="grey">VOID</Badge>}
+                      <span>
+                        · {r.date} · {r.reason}
+                      </span>
                       <span className="amount ml-2">{formatPaisa(r.total_paisa)}</span>
                       {r.status === 'posted' && (can('documents.edit_any') || can('documents.edit_own_same_day')) && (
                         <Button
@@ -248,10 +249,10 @@ export function SaleDetailPage() {
           {profit !== undefined && (
             <div className={cn('mt-2 border-t border-border pt-2', profit < 0 ? 'text-destructive' : 'text-green-800')}>
               <Row k="Profit" v={`${formatPaisa(profit)}${s.gross_paisa ? ` (${formatBp(roundDiv(profit * 10_000, s.gross_paisa))})` : ''}`} strong />
-              {(s.returned_profit_paisa ?? 0) !== 0 && (
+              {returnedProfit !== 0 && (
                 <>
-                  <Row k="Less returned" v={`−${formatPaisa(s.returned_profit_paisa ?? 0)}`} />
-                  <Row k="Profit after returns" v={formatPaisa(profit - (s.returned_profit_paisa ?? 0))} strong />
+                  <Row k="Less returned" v={`−${formatPaisa(returnedProfit)}`} />
+                  <Row k="Profit after returns" v={formatPaisa(profit - returnedProfit)} strong />
                 </>
               )}
             </div>

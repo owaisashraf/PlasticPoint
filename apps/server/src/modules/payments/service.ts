@@ -118,8 +118,23 @@ function manualAllocations(tx: DbOrTx, customerId: number, picked: readonly { sa
   return manual;
 }
 
+function insertManualAllocations(tx: DbOrTx, customerId: number, paymentId: number, manual: ReadonlyMap<number | null, number>, now: string): void {
+  for (const [saleId, amount] of manual) {
+    tx.insert(payment_allocations).values({ customer_id: customerId, source_type: 'payment', source_id: paymentId, sale_id: saleId, amount_paisa: amount, is_manual: true, created_at: now }).run();
+  }
+}
+
+/** Cheque details are kept only for cheques. */
+function chequeFields(input: { method: PaymentRow['method']; cheque_no: string | null; cheque_bank: string | null; cheque_date: string | null }) {
+  const isCheque = input.method === 'cheque';
+  return { cheque_no: isCheque ? input.cheque_no : null, cheque_bank: isCheque ? input.cheque_bank : null, cheque_date: isCheque ? input.cheque_date : null };
+}
+
 function moneyNarration(prefix: string, docNo: string, p: { method: string; cheque_no: string | null; reference: string | null }): string {
-  return `${prefix} ${docNo} (${p.method}${p.method === 'cheque' && p.cheque_no ? ` ${p.cheque_no}` : p.reference ? ` ${p.reference}` : ''})`;
+  let detail = '';
+  if (p.method === 'cheque' && p.cheque_no) detail = ` ${p.cheque_no}`;
+  else if (p.reference) detail = ` ${p.reference}`;
+  return `${prefix} ${docNo} (${p.method}${detail})`;
 }
 
 // --- Receipts --------------------------------------------------------------------
@@ -150,9 +165,7 @@ export function createReceipt(db: DB, user: SessionUser, input: ReceiptInput): P
         amount_paisa: input.amount_paisa,
         method: input.method,
         reference: input.reference,
-        cheque_no: input.method === 'cheque' ? input.cheque_no : null,
-        cheque_bank: input.method === 'cheque' ? input.cheque_bank : null,
-        cheque_date: input.method === 'cheque' ? input.cheque_date : null,
+        ...chequeFields(input),
         status: 'posted',
         version: 1,
         notes: input.notes,
@@ -164,9 +177,7 @@ export function createReceipt(db: DB, user: SessionUser, input: ReceiptInput): P
       .returning()
       .get();
 
-    for (const [saleId, amount] of manual) {
-      tx.insert(payment_allocations).values({ customer_id: customer.id, source_type: 'payment', source_id: payment.id, sale_id: saleId, amount_paisa: amount, is_manual: true, created_at: now }).run();
-    }
+    insertManualAllocations(tx, customer.id, payment.id, manual, now);
     postEntry(tx, {
       party_type: 'customer',
       party_id: customer.id,
@@ -222,9 +233,7 @@ export function createSupplierPayment(db: DB, user: SessionUser, input: Supplier
         amount_paisa: input.amount_paisa,
         method: input.method,
         reference: input.reference,
-        cheque_no: input.method === 'cheque' ? input.cheque_no : null,
-        cheque_bank: input.method === 'cheque' ? input.cheque_bank : null,
-        cheque_date: input.method === 'cheque' ? input.cheque_date : null,
+        ...chequeFields(input),
         status: 'posted',
         version: 1,
         notes: input.notes,
@@ -373,9 +382,7 @@ export function updateReceipt(db: DB, user: SessionUser, id: number, input: Upda
         amount_paisa: input.amount_paisa,
         method: input.method,
         reference: input.reference,
-        cheque_no: input.method === 'cheque' ? input.cheque_no : null,
-        cheque_bank: input.method === 'cheque' ? input.cheque_bank : null,
-        cheque_date: input.method === 'cheque' ? input.cheque_date : null,
+        ...chequeFields(input),
         notes: input.notes,
         version: row.version + 1,
         updated_by: user.id,
@@ -384,9 +391,7 @@ export function updateReceipt(db: DB, user: SessionUser, id: number, input: Upda
       .where(eq(payments.id, id))
       .returning()
       .get();
-    for (const [saleId, amount] of manual) {
-      tx.insert(payment_allocations).values({ customer_id: row.party_id, source_type: 'payment', source_id: id, sale_id: saleId, amount_paisa: amount, is_manual: true, created_at: now }).run();
-    }
+    insertManualAllocations(tx, row.party_id, id, manual, now);
     removeEntriesForSource(tx, 'payment', id);
     postEntry(tx, {
       party_type: 'customer',
@@ -418,9 +423,7 @@ export function updateSupplierPayment(db: DB, user: SessionUser, id: number, inp
         amount_paisa: input.amount_paisa,
         method: input.method,
         reference: input.reference,
-        cheque_no: input.method === 'cheque' ? input.cheque_no : null,
-        cheque_bank: input.method === 'cheque' ? input.cheque_bank : null,
-        cheque_date: input.method === 'cheque' ? input.cheque_date : null,
+        ...chequeFields(input),
         notes: input.notes,
         version: row.version + 1,
         updated_by: user.id,

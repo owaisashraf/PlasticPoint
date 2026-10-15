@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCan } from '@/features/auth/useAuth';
 import { ReportView } from '@/features/reports/ReportView';
+import { cn } from '@/lib/utils';
 
 const GROUPS: { id: ReportDef['group']; title: string; icon: typeof Users }[] = [
   { id: 'customer', title: 'Customers', icon: Users },
@@ -41,20 +42,10 @@ export function ReportsPage() {
               </h2>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 {list.map((r) => (
-                  <Card key={r.key} className="cursor-pointer hover:border-primary" tabIndex={0} role="link" onClick={() => navigate(`/reports/${r.key}`)} onKeyDown={(e) => e.key === 'Enter' && navigate(`/reports/${r.key}`)}>
-                    <CardHeader>
-                      <CardTitle className="text-base">{r.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-sm text-muted-foreground">{r.description}</CardContent>
-                  </Card>
+                  <CatalogueCard key={r.key} title={r.title} description={r.description} onOpen={() => navigate(`/reports/${r.key}`)} />
                 ))}
                 {ELSEWHERE[g.id].map((e) => (
-                  <Card key={e.title} className="cursor-pointer border-dashed hover:border-primary" tabIndex={0} role="link" onClick={() => navigate(e.to)} onKeyDown={(ev) => ev.key === 'Enter' && navigate(e.to)}>
-                    <CardHeader>
-                      <CardTitle className="text-base">{e.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-sm text-muted-foreground">{e.description}</CardContent>
-                  </Card>
+                  <CatalogueCard key={e.title} title={e.title} description={e.description} onOpen={() => navigate(e.to)} dashed />
                 ))}
               </div>
             </section>
@@ -62,6 +53,18 @@ export function ReportsPage() {
         })}
       </div>
     </div>
+  );
+}
+
+/** A catalogue entry that opens like a link (click or Enter). Dashed: it lives elsewhere in the app. */
+function CatalogueCard({ title, description, onOpen, dashed }: { title: string; description: string; onOpen: () => void; dashed?: boolean }) {
+  return (
+    <Card className={cn('cursor-pointer hover:border-primary', dashed && 'border-dashed')} tabIndex={0} role="link" onClick={onOpen} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
+    </Card>
   );
 }
 

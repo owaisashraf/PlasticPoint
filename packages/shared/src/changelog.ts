@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { businessDateSchema } from './common';
+import { boolQueryParamSchema, businessDateSchema } from './common';
+import { ROLES } from './permissions';
 
 /**
  * Change History (CLAUDE.md 10.6), superuser only. Built from the audit log;
@@ -30,23 +31,18 @@ export const AUDIT_FLAGS = [
 ] as const;
 export type AuditFlag = (typeof AUDIT_FLAGS)[number];
 
-const boolParam = z
-  .enum(['true', 'false', '1', '0'])
-  .optional()
-  .transform((v) => v === 'true' || v === '1');
-
 export const changelogQuerySchema = z.object({
   tab: z.enum(CHANGELOG_TABS).default('invoices'),
   from: businessDateSchema.optional(),
   to: businessDateSchema.optional(),
   user_id: z.coerce.number().int().positive().optional(),
-  role: z.enum(['superuser', 'owner', 'operator']).optional(),
+  role: z.enum(ROLES).optional(),
   action: z.string().trim().max(40).optional(),
   entity: z.string().trim().max(40).optional(),
   customer_id: z.coerce.number().int().positive().optional(),
   flag: z.enum(AUDIT_FLAGS).optional(),
-  flagged_only: boolParam,
-  unreviewed: boolParam,
+  flagged_only: boolQueryParamSchema,
+  unreviewed: boolQueryParamSchema,
   q: z.string().trim().max(60).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),

@@ -172,7 +172,7 @@ export const updatePurchaseSchema = z
     date: businessDateSchema,
     supplier_ref: optionalText(60),
     notes: optionalText(1000),
-    lines: z.array(purchaseLineInputSchema).min(1, 'Add at least one item').max(500),
+    lines: createPurchaseSchema.shape.lines,
     change_reason: changeReasonSchema,
   })
   .strict();

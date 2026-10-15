@@ -10,6 +10,15 @@ import { Input } from '@/components/ui/input';
 import { EXPENSES_KEY, useExpenseCategories } from '@/features/expenses/api';
 import { api, errorMessage } from '@/lib/api';
 
+type CategoryAction = { kind: 'add' } | { kind: 'rename'; id: number; name: string } | { kind: 'active'; id: number; active: boolean } | { kind: 'delete'; id: number };
+
+const DONE_MESSAGE: Record<CategoryAction['kind'], string> = {
+  add: 'Category added.',
+  rename: 'Category updated.',
+  active: 'Category updated.',
+  delete: 'Category deleted.',
+};
+
 /**
  * Expense categories (CLAUDE.md 8.12): add, rename, deactivate. A category
  * that has expenses cannot be deleted — deactivate it instead.
@@ -22,7 +31,7 @@ export function ExpenseCategoriesPanel() {
   const refresh = () => void qc.invalidateQueries({ queryKey: EXPENSES_KEY });
 
   const run = useMutation({
-    mutationFn: (a: { kind: 'add' } | { kind: 'rename'; id: number; name: string } | { kind: 'active'; id: number; active: boolean } | { kind: 'delete'; id: number }) => {
+    mutationFn: (a: CategoryAction) => {
       if (a.kind === 'add') return api.post('/api/expense-categories', { name });
       if (a.kind === 'rename') return api.patch(`/api/expense-categories/${a.id}`, { name: a.name });
       if (a.kind === 'active') return api.patch(`/api/expense-categories/${a.id}`, { active: a.active });
@@ -32,7 +41,7 @@ export function ExpenseCategoriesPanel() {
       refresh();
       if (a.kind === 'add') setName('');
       if (a.kind === 'rename') setRenaming(null);
-      toast.success(a.kind === 'add' ? 'Category added.' : a.kind === 'delete' ? 'Category deleted.' : 'Category updated.');
+      toast.success(DONE_MESSAGE[a.kind]);
     },
     onError: (e) => toast.error(errorMessage(e)),
   });

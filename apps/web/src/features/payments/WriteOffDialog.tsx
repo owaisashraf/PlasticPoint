@@ -12,6 +12,35 @@ import { api, errorMessage } from '@/lib/api';
 import { todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
 
+type Mode = 'create' | 'reverse' | 'edit';
+
+/** The dialog's wording for each mode. */
+function copyFor(mode: Mode, customerName: string, docNo: string | undefined, max: number) {
+  switch (mode) {
+    case 'create':
+      return {
+        title: `Write off ${customerName}'s debt`,
+        description: `Up to the balance of ${formatPaisa(max)}. The oldest invoices are cleared first and stop counting as overdue. This is recorded in the change history.`,
+        done: 'Written off.',
+        confirm: 'Write off',
+      };
+    case 'edit':
+      return {
+        title: `Edit write-off ${docNo}`,
+        description: `Up to ${formatPaisa(max)}: what ${customerName} would owe without this write-off. Recorded in the change history.`,
+        done: 'Write-off updated.',
+        confirm: 'Save',
+      };
+    case 'reverse':
+      return {
+        title: `Reverse write-off ${docNo}`,
+        description: `The customer is paying after all. Up to ${formatPaisa(max)} can be taken back; then record their payment as usual.`,
+        done: 'Write-off reversed. Now record the payment.',
+        confirm: 'Reverse',
+      };
+  }
+}
+
 /**
  * Owner+: write off a bad debt (up to the balance), or reverse part of an
  * earlier write-off when the customer pays after all (CLAUDE.md 8.8).
@@ -24,7 +53,7 @@ export function WriteOffDialog({
   writeOff,
   onClose,
 }: {
-  mode: 'create' | 'reverse' | 'edit';
+  mode: Mode;
   customerId: number;
   customerName: string;
   /** Balance (create) or amount still written off (reverse). */
@@ -33,26 +62,31 @@ export function WriteOffDialog({
   onClose: () => void;
 }) {
   const refresh = useRefreshAfterMoney();
-  const [amount, setAmount] = useState(paisaToInput(mode === 'edit' && writeOff ? writeOff.amount_paisa : max));
-  const [date, setDate] = useState(mode === 'edit' && writeOff ? writeOff.date : todayKarachi());
-  const [reason, setReason] = useState(mode === 'edit' && writeOff ? writeOff.reason : '');
+  const copy = copyFor(mode, customerName, writeOff?.doc_no, max);
+  const editing = mode === 'edit' ? writeOff : undefined;
+  const [amount, setAmount] = useState(paisaToInput(editing?.amount_paisa ?? max));
+  const [date, setDate] = useState(editing?.date ?? todayKarachi());
+  const [reason, setReason] = useState(editing?.reason ?? '');
   const [changeReason, setChangeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const amountPaisa = parseRupeesToPaisa(amount);
   const valid = amountPaisa !== null && amountPaisa > 0 && amountPaisa <= max && reason.trim().length >= 3 && (mode !== 'edit' || changeReasonOk(changeReason));
 
   const save = useMutation({
-    mutationFn: () =>
-      mode === 'edit'
-        ? api.put<{ write_off: WriteOff }>(`/api/write-offs/${writeOff?.id}`, { date, amount_paisa: amountPaisa, reason, change_reason: changeReason })
-        : api.post<{ write_off: WriteOff }>(mode === 'create' ? `/api/customers/${customerId}/write-offs` : `/api/write-offs/${writeOff?.id}/reverse`, {
-            date,
-            amount_paisa: amountPaisa,
-            reason,
-          }),
+    mutationFn: () => {
+      const body = { date, amount_paisa: amountPaisa, reason };
+      switch (mode) {
+        case 'create':
+          return api.post<{ write_off: WriteOff }>(`/api/customers/${customerId}/write-offs`, body);
+        case 'reverse':
+          return api.post<{ write_off: WriteOff }>(`/api/write-offs/${writeOff?.id}/reverse`, body);
+        case 'edit':
+          return api.put<{ write_off: WriteOff }>(`/api/write-offs/${writeOff?.id}`, { ...body, change_reason: changeReason });
+      }
+    },
     onSuccess: () => {
       refresh();
-      toast.success(mode === 'create' ? 'Written off.' : mode === 'edit' ? 'Write-off updated.' : 'Write-off reversed. Now record the payment.');
+      toast.success(copy.done);
       onClose();
     },
     onError: (e) => setError(errorMessage(e)),
@@ -62,14 +96,8 @@ export function WriteOffDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{mode === 'create' ? `Write off ${customerName}'s debt` : mode === 'edit' ? `Edit write-off ${writeOff?.doc_no}` : `Reverse write-off ${writeOff?.doc_no}`}</DialogTitle>
-          <DialogDescription>
-            {mode === 'edit'
-              ? `Up to ${formatPaisa(max)}: what ${customerName} would owe without this write-off. Recorded in the change history.`
-              : mode === 'create'
-              ? `Up to the balance of ${formatPaisa(max)}. The oldest invoices are cleared first and stop counting as overdue. This is recorded in the change history.`
-              : `The customer is paying after all. Up to ${formatPaisa(max)} can be taken back; then record their payment as usual.`}
-          </DialogDescription>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
         <form
           className="grid grid-cols-2 gap-4"
@@ -101,7 +129,7 @@ export function WriteOffDialog({
               Cancel
             </Button>
             <Button type="submit" variant={mode === 'create' ? 'destructive' : 'default'} disabled={!valid || save.isPending}>
-              {mode === 'create' ? 'Write off' : mode === 'edit' ? 'Save' : 'Reverse'}
+              {copy.confirm}
             </Button>
           </DialogFooter>
         </form>

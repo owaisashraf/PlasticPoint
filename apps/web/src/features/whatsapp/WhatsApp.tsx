@@ -23,13 +23,16 @@ const KIND_LABEL = {
   reminder: 'Payment reminder',
 } as const;
 
+/** A send that opened (or should open) a wa.me tab. */
+interface Sent {
+  r: SendResult;
+  target: WhatsAppTarget;
+  tabOpened: boolean;
+}
+
 function request(t: WhatsAppTarget): Promise<SendResult> {
   if (t.kind === 'invoice') return api.post(`/api/whatsapp/invoice/${t.saleId}`);
-  if (t.kind === 'statement')
-    return api.post(`/api/whatsapp/statement/${t.customerId}`, {
-      from: t.from,
-      to: t.to,
-    });
+  if (t.kind === 'statement') return api.post(`/api/whatsapp/statement/${t.customerId}`, { from: t.from, to: t.to });
   return api.post(`/api/whatsapp/reminder/${t.customerId}`);
 }
 
@@ -43,15 +46,8 @@ export function useWhatsApp(opts: { onDone?: () => void } = {}) {
   const qc = useQueryClient();
   const mode = usePublicSettings().data?.whatsapp_mode ?? 'click_to_chat';
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState<{
-    r: SendResult;
-    target: WhatsAppTarget;
-    tabOpened: boolean;
-  } | null>(null);
-  const [phoneFix, setPhoneFix] = useState<{
-    target: WhatsAppTarget;
-    message: string;
-  } | null>(null);
+  const [sent, setSent] = useState<Sent | null>(null);
+  const [phoneFix, setPhoneFix] = useState<{ target: WhatsAppTarget; message: string } | null>(null);
 
   const send = async (target: WhatsAppTarget) => {
     // Open the tab inside the click so the browser does not block it.
@@ -96,7 +92,7 @@ export function useWhatsApp(opts: { onDone?: () => void } = {}) {
   return { send, busy, element, active: sent !== null || phoneFix !== null };
 }
 
-function SentDialog({ sent: { r, target, tabOpened }, onClose }: { sent: { r: SendResult; target: WhatsAppTarget; tabOpened: boolean }; onClose: () => void }) {
+function SentDialog({ sent: { r, target, tabOpened }, onClose }: { sent: Sent; onClose: () => void }) {
   const [opening, setOpening] = useState(false);
   const openFolder = async () => {
     setOpening(true);

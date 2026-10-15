@@ -144,7 +144,8 @@ export function figuresByMonth(db: DbOrTx, from: string, to: string): Map<string
 
   // Depreciation and disposals are worked out per asset (few rows). A month's
   // charge counts on its last day, so a month that has not ended has none yet.
-  const until = to < businessToday() ? to : businessToday();
+  const today = businessToday();
+  const until = to < today ? to : today;
   for (const a of db.select().from(assets).where(sql`${assets.status} <> 'void'`).all()) {
     for (const row of depreciationSchedule(a)) {
       if (row.charge_date >= from && row.charge_date <= until) get(row.month).depreciation_paisa += row.charge_paisa;

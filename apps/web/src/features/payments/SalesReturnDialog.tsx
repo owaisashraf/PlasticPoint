@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input, NativeSelect } from '@/components/ui/input';
 import { ChangeReasonField, changeReasonOk } from '@/features/documents';
 import { api, errorMessage } from '@/lib/api';
-import { todayKarachi } from '@/lib/utils';
+import { cn, todayKarachi } from '@/lib/utils';
 import { useRefreshAfterMoney } from './api';
 
 /**
@@ -94,7 +94,7 @@ export function SalesReturnDialog({ sale, existing, onClose }: { sale: Sale; /**
                     <td className="text-right">
                       <Input
                         autoFocus={i === 0}
-                        className={n > left ? 'amount ml-auto h-8 w-20 border-destructive' : 'amount ml-auto h-8 w-20'}
+                        className={cn('amount ml-auto h-8 w-20', n > left && 'border-destructive')}
                         inputMode="numeric"
                         placeholder={`max ${left}`}
                         value={qty[l.id] ?? ''}

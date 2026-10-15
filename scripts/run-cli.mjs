@@ -27,15 +27,15 @@ const hasTsx = isInstalled('tsx');
 const src = join(root, 'apps/server/src/cli', `${name}.ts`);
 const built = join(root, 'apps/server/dist/cli', `${name}.js`);
 
-let cmd;
+let nodeArgs;
 if (hasTsx && existsSync(src)) {
-  cmd = [process.execPath, ['--import', 'tsx', src, ...args]];
+  nodeArgs = ['--import', 'tsx', src, ...args];
 } else if (existsSync(built)) {
-  cmd = [process.execPath, [built, ...args]];
+  nodeArgs = [built, ...args];
 } else {
   console.error(`Command "${name}" not found. Run "npm run build" first.`);
   process.exit(1);
 }
 
-const result = spawnSync(cmd[0], cmd[1], { stdio: 'inherit', cwd: root });
+const result = spawnSync(process.execPath, nodeArgs, { stdio: 'inherit', cwd: root });
 process.exit(result.status ?? 1);

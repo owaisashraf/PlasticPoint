@@ -7,13 +7,15 @@ import { renderOverduePdf } from '../../pdf/overdue';
 import { getSettings } from '../settings/service';
 import { listOverdue, overdueCount } from './service';
 
+const BAD_DEBT_TEXT = { exclude: null, include: 'incl. bad debt', only: 'bad debt only' } as const;
+
 /** "Filters: wholesalers · Lahore · 30+ days" for the report footer. */
 function filterText(q: z.output<typeof overdueQuerySchema>): string {
   const parts = [
     q.type ? `${q.type}s` : null,
     q.city ?? null,
     q.min_days ? `${q.min_days}+ days` : null,
-    q.bad_debt === 'only' ? 'bad debt only' : q.bad_debt === 'include' ? 'incl. bad debt' : null,
+    BAD_DEBT_TEXT[q.bad_debt],
     q.q ? `“${q.q}”` : null,
   ].filter(Boolean);
   return parts.length ? `Filters: ${parts.join(' · ')}` : '';

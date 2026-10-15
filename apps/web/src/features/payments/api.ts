@@ -1,19 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OpenItems, Payment, PaymentKind, SalesReturn, PurchaseReturnRow, WriteOff } from '@shopledger/shared';
-import { api } from '@/lib/api';
+import { api, queryString } from '@/lib/api';
 import { CUSTOMERS_KEY } from '@/features/customers/api';
 import { PRODUCTS_KEY } from '@/features/products/api';
 import { OVERDUE_KEY } from '@/features/overdue';
+import { SUPPLIERS_KEY } from '@/features/purchases/api';
 import { SALES_KEY } from '@/features/sales/api';
 
 export const PAYMENTS_KEY = ['payments'] as const;
 export const RETURNS_KEY = ['returns'] as const;
-
-function qs(f: Record<string, string | number | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== '') p.set(k, String(v));
-  return p.toString();
-}
 
 export interface PaymentFilters {
   kind?: PaymentKind;
@@ -28,7 +23,7 @@ export interface PaymentFilters {
 export function usePayments(f: PaymentFilters) {
   return useQuery({
     queryKey: [...PAYMENTS_KEY, 'list', f],
-    queryFn: () => api.get<{ payments: Payment[]; total: number }>(`/api/payments?${qs({ ...f })}`),
+    queryFn: () => api.get<{ payments: Payment[]; total: number }>(`/api/payments?${queryString({ ...f })}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -45,7 +40,7 @@ export function useOpenItems(customerId: number | null, excludePaymentId?: numbe
 export function useSalesReturns(f: { q?: string; from?: string; to?: string; customer_id?: number; limit?: number }) {
   return useQuery({
     queryKey: [...RETURNS_KEY, 'sales', f],
-    queryFn: () => api.get<{ returns: SalesReturn[]; total: number }>(`/api/sales-returns?${qs({ ...f })}`),
+    queryFn: () => api.get<{ returns: SalesReturn[]; total: number }>(`/api/sales-returns?${queryString({ ...f })}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -53,7 +48,7 @@ export function useSalesReturns(f: { q?: string; from?: string; to?: string; cus
 export function usePurchaseReturns(f: { q?: string; from?: string; to?: string; limit?: number }) {
   return useQuery({
     queryKey: [...RETURNS_KEY, 'purchase', f],
-    queryFn: () => api.get<{ returns: PurchaseReturnRow[]; total: number }>(`/api/purchase-returns?${qs({ ...f })}`),
+    queryFn: () => api.get<{ returns: PurchaseReturnRow[]; total: number }>(`/api/purchase-returns?${queryString({ ...f })}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -69,11 +64,11 @@ export function useWriteOffs(customerId: number) {
 export function useRefreshAfterMoney() {
   const qc = useQueryClient();
   return () => {
-    for (const key of [PAYMENTS_KEY, RETURNS_KEY, SALES_KEY, CUSTOMERS_KEY, PRODUCTS_KEY, OVERDUE_KEY, ['suppliers']]) void qc.invalidateQueries({ queryKey: key });
+    for (const key of [PAYMENTS_KEY, RETURNS_KEY, SALES_KEY, CUSTOMERS_KEY, PRODUCTS_KEY, OVERDUE_KEY, SUPPLIERS_KEY]) void qc.invalidateQueries({ queryKey: key });
   };
 }
 
 /** Opens a statement PDF in a new tab. */
 export function openStatement(kind: 'customers' | 'suppliers', id: number, range: { from?: string; to?: string }) {
-  window.open(`/api/${kind}/${id}/statement.pdf?${qs(range)}`, '_blank');
+  window.open(`/api/${kind}/${id}/statement.pdf?${queryString(range)}`, '_blank');
 }

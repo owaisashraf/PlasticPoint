@@ -8,13 +8,19 @@ import { purgeExpiredSessions } from './modules/auth/sessions';
 import { getSetting } from './modules/settings/service';
 import { hasUsers } from './modules/users/service';
 
+function browserCommand(url: string): [string, string[]] {
+  switch (process.platform) {
+    case 'win32':
+      return ['cmd', ['/c', 'start', '""', url]];
+    case 'darwin':
+      return ['open', [url]];
+    default:
+      return ['xdg-open', [url]];
+  }
+}
+
 function openBrowser(url: string): void {
-  const [cmd, args] =
-    process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '""', url]]
-      : process.platform === 'darwin'
-        ? ['open', [url]]
-        : ['xdg-open', [url]];
+  const [cmd, args] = browserCommand(url);
   spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
 }
 
@@ -56,8 +62,9 @@ async function main() {
     await app.listen({ port: config.port, host });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'EADDRINUSE') {
-      logger.error(`Port ${config.port} is used by another program. Close it or set a different PORT in .env.`);
-      console.error(`Port ${config.port} is used by another program. Close it or set a different PORT in .env.`);
+      const message = `Port ${config.port} is used by another program. Close it or set a different PORT in .env.`;
+      logger.error(message);
+      console.error(message);
       dbh.close();
       process.exit(1);
     }

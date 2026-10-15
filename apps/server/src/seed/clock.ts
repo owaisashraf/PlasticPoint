@@ -40,26 +40,31 @@ export function installSimClock(): SimClock {
 /** The real current time, whatever the simulated clock says. */
 export const realNow = (): number => RealDate.now();
 
+/** 'YYYY-MM-DD' -> [year, month 1-12, day]. */
+function parseDate(date: string): [number, number, number] {
+  return date.split('-').map(Number) as [number, number, number];
+}
+
 /** Milliseconds for a Karachi wall-clock time (UTC+5, no daylight saving). */
 export function karachiMs(date: string, hour: number, minute = 0): number {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const [y, m, d] = parseDate(date);
   return RealDate.UTC(y, m - 1, d, hour - 5, minute);
 }
 
 export function addDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const [y, m, d] = parseDate(date);
   return new RealDate(RealDate.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 export function addMonths(date: string, months: number): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const [y, m, d] = parseDate(date);
   const target = new RealDate(RealDate.UTC(y, m - 1 + months, 1));
   const last = new RealDate(RealDate.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
   return new RealDate(RealDate.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(d, last))).toISOString().slice(0, 10);
 }
 
 export function dayOfWeek(date: string): number {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const [y, m, d] = parseDate(date);
   return new RealDate(RealDate.UTC(y, m - 1, d)).getUTCDay();
 }
 

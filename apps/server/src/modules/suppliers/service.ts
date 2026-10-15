@@ -14,14 +14,17 @@ type UpdateInput = z.output<typeof updateSupplierSchema>;
 
 const balanceCol = balanceColumnSql('supplier');
 
+function openingFields(db: DbOrTx, id: number) {
+  const opening = getOpeningBalance(db, 'supplier', id);
+  return { opening_balance_paisa: opening.amount_paisa, opening_balance_date: opening.date };
+}
+
 function toSupplier(db: DbOrTx, row: SupplierRow, balance: number): Supplier {
-  const opening = getOpeningBalance(db, 'supplier', row.id);
-  return { ...row, balance_paisa: balance, opening_balance_paisa: opening.amount_paisa, opening_balance_date: opening.date };
+  return { ...row, balance_paisa: balance, ...openingFields(db, row.id) };
 }
 
 function snapshot(db: DbOrTx, row: SupplierRow) {
-  const opening = getOpeningBalance(db, 'supplier', row.id);
-  return { ...row, opening_balance_paisa: opening.amount_paisa, opening_balance_date: opening.date };
+  return { ...row, ...openingFields(db, row.id) };
 }
 
 export function listSuppliers(db: DbOrTx): Supplier[] {

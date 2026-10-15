@@ -69,9 +69,13 @@ function loadVisibleUser(db: DbOrTx, actor: SessionUser, id: number): UserRow {
 }
 
 export function listUsers(db: DB, actor: SessionUser): PublicUser[] {
-  const q = db.select().from(users);
-  const rows = actor.role === 'superuser' ? q.orderBy(asc(users.id)).all() : q.where(ne(users.role, 'superuser')).orderBy(asc(users.id)).all();
-  return rows.map(toPublicUser);
+  return db
+    .select()
+    .from(users)
+    .where(actor.role === 'superuser' ? undefined : ne(users.role, 'superuser'))
+    .orderBy(asc(users.id))
+    .all()
+    .map(toPublicUser);
 }
 
 export async function createUser(db: DB, actor: SessionUser, input: CreateUserInput, rounds: number): Promise<PublicUser> {

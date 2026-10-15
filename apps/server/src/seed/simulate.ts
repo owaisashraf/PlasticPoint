@@ -67,6 +67,11 @@ function makeRng(seed: number) {
   };
 }
 
+/** How often each user makes a sale, and how customers like to pay. */
+const SELLER_WEIGHTS = { ali: 5, sana: 4, owner: 1 } as const;
+const RETAIL_METHOD_WEIGHTS = { cash: 6, online: 2, bank: 2 } as const;
+const WHOLESALE_METHOD_WEIGHTS = { bank: 4, cheque: 3, cash: 2, online: 2 } as const;
+
 /** Seasonal demand: Ramadan/Eid and wedding season are busy, monsoon is slow. */
 const SEASON: Record<number, number> = { 1: 0.9, 2: 1.15, 3: 1.3, 4: 0.95, 5: 1.2, 6: 1.05, 7: 0.85, 8: 0.9, 9: 1.0, 10: 1.05, 11: 1.15, 12: 1.2 };
 
@@ -107,11 +112,16 @@ interface SaleRecord {
 
 export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock, opts: SeedOptions): Promise<SeedSummary> {
   const rng = makeRng(20_261_013);
-  const db = dbh.db;
-  const sqlite = dbh.sqlite;
+  const { db, sqlite } = dbh;
   const log = opts.log;
   const counts: Record<string, number> = {};
   const count = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+  /** True the first time a key is seen (marker counts are left out of the summary). */
+  const firstTime = (key: string) => {
+    if (counts[key]) return false;
+    count(key);
+    return true;
+  };
   const skipped: string[] = [];
 
   const today = toKarachiDate(realNow());
@@ -317,7 +327,9 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
 
   // --- Actions ---------------------------------------------------------------------------
   const methodFor = (c: CustomerState): 'cash' | 'bank' | 'cheque' | 'online' =>
-    c.def.type === 'retailer' ? rng.weighted(['cash', 'online', 'bank'] as const, (m) => (m === 'cash' ? 6 : 2)) : rng.weighted(['bank', 'cheque', 'cash', 'online'] as const, (m) => (m === 'bank' ? 4 : m === 'cheque' ? 3 : 2));
+    c.def.type === 'retailer'
+      ? rng.weighted(['cash', 'online', 'bank'] as const, (m) => RETAIL_METHOD_WEIGHTS[m])
+      : rng.weighted(['bank', 'cheque', 'cash', 'online'] as const, (m) => WHOLESALE_METHOD_WEIGHTS[m]);
 
   let bouncePlan = 0;
   async function receipt(c: CustomerState, amount: number, by: UserKey = rng.pick(['ali', 'sana', 'ali', 'owner'] as const)) {
@@ -378,8 +390,6 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     }
   }
 
-  const sales: SaleRecord[] = [];
-
   function monthIndex(): number {
     return (Number(day.slice(0, 4)) - Number(start.slice(0, 4))) * 12 + (Number(day.slice(5, 7)) - Number(start.slice(5, 7)));
   }
@@ -411,20 +421,21 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     }
     if (lines.length === 0) return null;
     let approval: Record<string, unknown> | undefined;
+    const ownerApproval = () => (by === 'owner' ? { confirmed: true } : { username: 'owner', password: opts.password });
     const first = lines[0];
-    if (special === 'above_max' && first?.product.maxDiscount !== null && first) {
-      first.discount_bp = Math.min((first.product.maxDiscount ?? first.discount_bp) + 100, first.product.margin - 50);
-      approval = by === 'owner' ? { confirmed: true } : { username: 'owner', password: opts.password };
+    if (special === 'above_max' && first && first.product.maxDiscount !== null) {
+      first.discount_bp = Math.min(first.product.maxDiscount + 100, first.product.margin - 50);
+      approval = ownerApproval();
     }
     if (special === 'below_cost' && first) {
       first.discount_bp = first.product.margin + 300; // clearance below cost, approved by the owner
-      approval = by === 'owner' ? { confirmed: true } : { username: 'owner', password: opts.password };
+      approval = ownerApproval();
     }
     let extra = wholesale && rng.chance(0.05) ? rng.pick([500, 1000, 1500, 2000, 3000]) * 100 : 0;
     const body: Record<string, unknown> = {
       customer_id: c.id,
       date: day,
-      lines: lines.map((l) => ({ variant_id: l.variant_id, qty: l.qty, discount_bp: l.discount_bp })),
+      lines: lineInputs(lines),
       extra_discount_paisa: extra,
       ...(approval ? { approval } : {}),
     };
@@ -462,7 +473,6 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
       voided: false,
       cash: Boolean(body.cash_received_paisa),
     };
-    sales.push(rec);
     count('sales');
     if (approval) count('approved sales');
     planPayment(c, rec);
@@ -474,7 +484,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     customer_id: s.customer.id,
     date: s.date,
     payment_terms_days: s.terms,
-    lines: s.lines.map((l) => ({ variant_id: l.variant_id, qty: l.qty, discount_bp: l.discount_bp })),
+    lines: lineInputs(s.lines),
     extra_discount_paisa: s.extra,
     change_reason: reason,
   });
@@ -560,7 +570,6 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     ).purchase;
     purchaseLines.push((purchase.lines ?? []).map((l) => ({ id: l.id, qty: l.qty })));
     count('purchases');
-    return purchase.id;
   }
 
   async function expense(category: string, amountRupees: number, method: 'cash' | 'bank', paid_to: string, notes?: string) {
@@ -628,8 +637,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     }
 
     // Monthly and weekly running costs.
-    if (dom <= 2 && !counts[`rent-${d.slice(0, 7)}`]) {
-      count(`rent-${d.slice(0, 7)}`);
+    if (dom <= 2 && firstTime(`rent-${d.slice(0, 7)}`)) {
       await expense('Rent', 85_000, 'bank', 'Landlord — Haji Yaqoob', `Shop rent ${d.slice(0, 7)}`);
       await expense('Salaries & wages', 45_000 * salaryRaise, 'cash', 'Ali Raza');
       await expense('Salaries & wages', 38_000 * salaryRaise, 'cash', 'Sana Tariq');
@@ -637,8 +645,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
       await expense('Phone & internet', 4_500, 'bank', 'PTCL / Jazz');
       await expense('Bank charges', rng.int(800, 2_500), 'bank', 'HBL');
     }
-    if (dom >= 9 && dom <= 11 && !counts[`power-${d.slice(0, 7)}`]) {
-      count(`power-${d.slice(0, 7)}`);
+    if (dom >= 9 && dom <= 11 && firstTime(`power-${d.slice(0, 7)}`)) {
       const month = Number(d.slice(5, 7));
       const summer = month >= 5 && month <= 9;
       await expense('Electricity & gas', summer ? rng.int(38_000, 52_000) : rng.int(16_000, 24_000), 'bank', 'K-Electric');
@@ -666,7 +673,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
       const pool = customers.filter((c) => c.status === 'active' && buys(c, m));
       if (pool.length === 0) break;
       const c = rng.weighted(pool, (x) => x.def.size * (x.def.habit === 'chronic' ? 0.5 : 1));
-      const by = rng.weighted(['ali', 'sana', 'owner'] as const, (u) => (u === 'ali' ? 5 : u === 'sana' ? 4 : 1));
+      const by = rng.weighted(['ali', 'sana', 'owner'] as const, (u) => SELLER_WEIGHTS[u]);
       const special = rng.chance(0.004) ? 'above_max' : undefined;
       await makeSale(c, by, special);
     }
@@ -702,8 +709,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
     }
 
     // First of the month: the superuser reviews older flagged changes.
-    if (dom <= 2 && m > 1 && !counts[`review-${d.slice(0, 7)}`]) {
-      count(`review-${d.slice(0, 7)}`);
+    if (dom <= 2 && m > 1 && firstTime(`review-${d.slice(0, 7)}`)) {
       const ids = sqlite
         .prepare("SELECT id FROM audit_log WHERE EXISTS (SELECT 1 FROM json_each(flags) WHERE value <> 'by_operator') AND id NOT IN (SELECT audit_id FROM audit_reviews) AND at < ? ORDER BY id")
         .all(new Date(karachiMs(addDays(d, -30), 0)).toISOString()) as { id: number }[];
@@ -724,8 +730,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
 
   async function scripted(m: number, dom: number, d: string) {
     const once = async (key: string, cond: boolean, fn: () => Promise<void>) => {
-      if (!cond || counts[`once-${key}`]) return;
-      count(`once-${key}`);
+      if (!cond || !firstTime(`once-${key}`)) return;
       tick();
       await fn();
     };
@@ -736,8 +741,7 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
       bouncePlan += 1;
     });
     await once('purchase-return-1', m === 3 && dom >= 10, async () => {
-      const lines = purchaseLines.at(-1);
-      const l = lines?.[0];
+      const l = purchaseLines.at(-1)?.[0];
       if (l && (await tryOk('purchase return', 'owner', 'POST', `/api/purchases/${lastId('purchases')}/returns`, { date: d, reason: 'Cracked pieces in the bill', lines: [{ purchase_item_id: l.id, qty: Math.min(6, l.qty) }] }))) count('purchase returns');
     });
     await once('purchase-return-2', m === 11 && dom >= 5, async () => {
@@ -858,9 +862,12 @@ export async function seedDemo(app: AppInstance, dbh: DbHolder, clock: SimClock,
 
   // --- Finish --------------------------------------------------------------------------------
   deleteAllSessions(db);
-  const pending = [...agenda.keys()].length;
-  log(`Done. ${pending} planned payments and follow-ups fall after today and stay open (overdue and not yet due).`);
+  log(`Done. ${agenda.size} planned payments and follow-ups fall after today and stay open (overdue and not yet due).`);
   return { from: start, to: today, counts: Object.fromEntries(Object.entries(counts).filter(([k]) => !/^(rent|power|review|once)-/.test(k))), skipped };
+}
+
+function lineInputs(lines: SaleRecord['lines']): { variant_id: number; qty: number; discount_bp: number }[] {
+  return lines.map((l) => ({ variant_id: l.variant_id, qty: l.qty, discount_bp: l.discount_bp }));
 }
 
 function toKarachiDate(ms: number): string {

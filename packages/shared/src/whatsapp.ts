@@ -43,17 +43,19 @@ export const DEFAULT_WHATSAPP_PARAMS: Record<WhatsAppKind, string> = {
   reminder: 'customer_name,overdue_amount,days_overdue,balance',
 };
 
+function isPlaceholder(name: string): name is WhatsAppPlaceholder {
+  return (WHATSAPP_PLACEHOLDERS as readonly string[]).includes(name);
+}
+
 /** Replaces {placeholder}s; anything unknown is left as typed. */
 export function renderWhatsAppMessage(template: string, values: Partial<WhatsAppValues>): string {
-  return template.replace(/\{([a-z_]+)\}/g, (whole, key: string) =>
-    (WHATSAPP_PLACEHOLDERS as readonly string[]).includes(key) ? (values[key as WhatsAppPlaceholder] ?? '') : whole,
-  );
+  return template.replace(/\{([a-z_]+)\}/g, (whole, key: string) => (isPlaceholder(key) ? (values[key] ?? '') : whole));
 }
 
 /** Placeholders in a message that are not in the list (to warn while editing). */
 export function unknownPlaceholders(template: string): string[] {
   const found = [...template.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1] as string);
-  return [...new Set(found.filter((k) => !(WHATSAPP_PLACEHOLDERS as readonly string[]).includes(k)))];
+  return [...new Set(found.filter((k) => !isPlaceholder(k)))];
 }
 
 /** "customer_name, amount" → ['customer_name', 'amount']; null if any name is unknown. */
@@ -62,8 +64,7 @@ export function parseWhatsAppParams(text: string): WhatsAppPlaceholder[] | null 
     .split(',')
     .map((s) => s.trim().replace(/^\{|\}$/g, ''))
     .filter(Boolean);
-  if (!names.every((n) => (WHATSAPP_PLACEHOLDERS as readonly string[]).includes(n))) return null;
-  return names as WhatsAppPlaceholder[];
+  return names.every(isPlaceholder) ? names : null;
 }
 
 /** Balance as customers read it: "Rs 12,000", or "Advance Rs 2,000" when they have paid ahead. */

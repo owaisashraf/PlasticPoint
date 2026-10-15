@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Customer, PublicSettings, Statement } from '@shopledger/shared';
-import { api } from '@/lib/api';
+import { api, queryString } from '@/lib/api';
 
 export const CUSTOMERS_KEY = ['customers'] as const;
 
@@ -12,16 +12,10 @@ export interface CustomerFilters {
   limit?: number;
 }
 
-function qs(f: Record<string, string | number | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== '') p.set(k, String(v));
-  return p.toString();
-}
-
 export function useCustomers(f: CustomerFilters, enabled = true) {
   return useQuery({
     queryKey: [...CUSTOMERS_KEY, 'list', f],
-    queryFn: () => api.get<{ customers: Customer[]; total: number }>(`/api/customers?${qs({ ...f })}`),
+    queryFn: () => api.get<{ customers: Customer[]; total: number }>(`/api/customers?${queryString({ ...f })}`),
     enabled,
     placeholderData: (prev) => prev,
   });
@@ -38,7 +32,7 @@ export function useCustomer(id: number, enabled = true) {
 export function useCustomerLedger(id: number, range: { from?: string; to?: string }) {
   return useQuery({
     queryKey: [...CUSTOMERS_KEY, 'ledger', id, range],
-    queryFn: () => api.get<Statement>(`/api/customers/${id}/ledger?${qs(range)}`),
+    queryFn: () => api.get<Statement>(`/api/customers/${id}/ledger?${queryString(range)}`),
   });
 }
 

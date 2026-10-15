@@ -12,7 +12,7 @@ import {
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
-import { FormField } from '@/components/FormField';
+import { applyServerFieldErrors, FormField } from '@/components/FormField';
 import { MoneyInput, PercentInput, TagInput } from '@/components/inputs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -85,7 +85,7 @@ export function ProductFormDialog({ product, onClose, onSaved }: { product?: Pro
       onClose();
     },
     onError: (e) => {
-      if (e instanceof ApiError && e.fields) for (const [k, m] of Object.entries(e.fields)) form.setError(k as keyof FormValues, { message: m });
+      if (e instanceof ApiError) applyServerFieldErrors(e.fields, form.setError);
       setServerError(errorMessage(e));
     },
   });

@@ -76,8 +76,7 @@ export const moneyBook: ReportBuilder = (ctx) => {
     columns: [col('date', 'Date', 'date'), col('doc_no', 'Number'), col('type', 'Type'), col('party', 'Customer / supplier'), col('method', 'Method'), col('reference', 'Cheque / reference'), col('in_paisa', 'Received', 'money'), col('out_paisa', 'Paid out', 'money')],
     rows: list,
     totals: { in_paisa: total(list, 'in_paisa'), out_paisa: total(list, 'out_paisa') },
-    summary: Object.keys(METHOD)
-      .map((m) => METHOD[m as keyof typeof METHOD])
+    summary: Object.values(METHOD)
       .filter((m) => list.some((r) => r.method === m))
       .map((m) => ({ label: `${m}: in − out`, value: byMethod(m, 'in_paisa') - byMethod(m, 'out_paisa'), kind: 'money' as const })),
     notes: ['Bounced and void payments are left out.'],
@@ -143,8 +142,14 @@ export const stockOnHand: ReportBuilder = (ctx) => {
     FROM product_variants v JOIN products p ON p.id = v.product_id
     WHERE v.active = 1 AND p.active = 1 ${cat}
     ORDER BY p.item_code, v.id`);
+  const isLow = (r: { stock: number; threshold: number }) => r.threshold > 0 && r.stock <= r.threshold;
+  const stockNote = (r: { stock: number; threshold: number }) => {
+    if (r.stock < 0) return 'Below zero';
+    if (isLow(r)) return 'Low';
+    return '';
+  };
   const list: ReportRow[] = rows
-    .filter((r) => !lowOnly || (r.threshold > 0 && r.stock <= r.threshold))
+    .filter((r) => !lowOnly || isLow(r))
     .map((r) => ({
       item_code: r.item_code,
       name: r.name,
@@ -154,7 +159,7 @@ export const stockOnHand: ReportBuilder = (ctx) => {
       unit: r.unit,
       stock: r.stock,
       threshold: r.threshold || null,
-      note: r.stock < 0 ? 'Below zero' : r.threshold > 0 && r.stock <= r.threshold ? 'Low' : '',
+      note: stockNote(r),
       _link: `/products/${r.product_id}`,
     }));
   return {

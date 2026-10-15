@@ -24,7 +24,7 @@ export interface ChangeableDoc {
 
 /** Throws unless `user` may edit this document. `createKey` is the right to make this kind of document. */
 export function assertCanEdit(user: SessionUser, doc: ChangeableDoc, createKey: PermissionKey): void {
-  if (doc.status !== 'posted') throw badRequest(`${doc.doc_no} is ${doc.status === 'void' ? 'void' : doc.status} and cannot be changed.`);
+  if (doc.status !== 'posted') throw badRequest(`${doc.doc_no} is ${doc.status} and cannot be changed.`);
   if (can(user, 'documents.edit_any')) return;
   const ownToday = doc.created_by === user.id && toBusinessDate(new Date(doc.created_at)) === businessToday();
   if (!can(user, createKey) || !can(user, 'documents.edit_own_same_day') || !ownToday) {
@@ -62,7 +62,9 @@ export function changeFlags(db: DbOrTx, user: SessionUser, entity: string, entit
 
 /** total_reduced / total_increased from two totals. */
 export function totalFlags(before: number, after: number): string[] {
-  return after < before ? ['total_reduced'] : after > before ? ['total_increased'] : [];
+  if (after < before) return ['total_reduced'];
+  if (after > before) return ['total_increased'];
+  return [];
 }
 
 /** Puts flags in a stable order without duplicates. */

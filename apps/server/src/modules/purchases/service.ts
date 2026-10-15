@@ -99,19 +99,17 @@ type HeaderRow = {
   total_qty: number;
 };
 
+function headerQuery(db: DbOrTx) {
+  return db.select(headerSelect).from(purchases).innerJoin(suppliers, eq(suppliers.id, purchases.supplier_id)).leftJoin(users, eq(users.id, purchases.created_by));
+}
+
 function toPurchase(r: HeaderRow): Purchase {
   const { created_by, updated_by: _u, updated_at: _ua, ...p } = r.p;
   return { ...p, supplier_name: r.supplier_name, created_by_id: created_by, created_by_name: r.created_by_name, item_count: r.item_count, total_qty: r.total_qty };
 }
 
 export function getPurchase(db: DbOrTx, id: number): Purchase {
-  const r = db
-    .select(headerSelect)
-    .from(purchases)
-    .innerJoin(suppliers, eq(suppliers.id, purchases.supplier_id))
-    .leftJoin(users, eq(users.id, purchases.created_by))
-    .where(eq(purchases.id, id))
-    .get();
+  const r = headerQuery(db).where(eq(purchases.id, id)).get();
   if (!r) throw notFound('Purchase not found.');
   const returns = db
     .select({
@@ -139,16 +137,7 @@ export function listPurchases(db: DB, q: ListQuery): { purchases: Purchase[]; to
   }
   const where = and(...conds);
   const total = db.select({ n: sql<number>`count(*)` }).from(purchases).where(where).get()?.n ?? 0;
-  const rows = db
-    .select(headerSelect)
-    .from(purchases)
-    .innerJoin(suppliers, eq(suppliers.id, purchases.supplier_id))
-    .leftJoin(users, eq(users.id, purchases.created_by))
-    .where(where)
-    .orderBy(desc(purchases.date), desc(purchases.id))
-    .limit(q.limit)
-    .offset(q.offset)
-    .all();
+  const rows = headerQuery(db).where(where).orderBy(desc(purchases.date), desc(purchases.id)).limit(q.limit).offset(q.offset).all();
   return { purchases: rows.map(toPurchase), total };
 }
 
@@ -203,6 +192,13 @@ type PricedLine = PurchaseLineInput & PurchaseLineAmounts & { line_no: number };
 
 function priceLines(lines: readonly PurchaseLineInput[]): PricedLine[] {
   return lines.map((l, i) => ({ ...l, line_no: i + 1, ...purchaseLineAmounts(l.qty, l.list_price_paisa, l.supplier_margin_bp) }));
+}
+
+/** Header totals: the cost is the price less the supplier margin. */
+function purchaseTotals(lines: readonly PricedLine[]): { gross_paisa: number; margin_paisa: number; total_cost_paisa: number } {
+  const gross = lines.reduce((a, l) => a + l.line_gross_paisa, 0);
+  const margin = lines.reduce((a, l) => a + l.line_margin_paisa, 0);
+  return { gross_paisa: gross, margin_paisa: margin, total_cost_paisa: gross - margin };
 }
 
 /** Checks the supplier and items. Items already on an edited purchase may stay even if deactivated since. */
@@ -294,6 +290,12 @@ function assertStockNotBelowZero(tx: DbOrTx, before: ReadonlyMap<number, number>
   }
 }
 
+/** Takes off a purchase's stock and supplier credit. */
+function removePurchaseEffects(tx: DbOrTx, purchaseId: number): void {
+  removeEntriesForSource(tx, 'purchase', purchaseId);
+  removeMovementsForSource(tx, 'purchase', purchaseId);
+}
+
 function postedReturnsOf(tx: DbOrTx, purchaseId: number): string[] {
   return tx
     .select({ doc_no: purchase_returns.doc_no })
@@ -326,9 +328,7 @@ export function createPurchase(db: DB, user: SessionUser, input: CreateInput): P
     }
 
     const lines = priceLines(input.lines);
-    const gross = lines.reduce((a, l) => a + l.line_gross_paisa, 0);
-    const margin = lines.reduce((a, l) => a + l.line_margin_paisa, 0);
-    const cost = gross - margin;
+    const totals = purchaseTotals(lines);
     const now = nowIso();
 
     const header = tx
@@ -339,9 +339,7 @@ export function createPurchase(db: DB, user: SessionUser, input: CreateInput): P
         date: input.date,
         supplier_ref: input.supplier_ref,
         notes: input.notes,
-        gross_paisa: gross,
-        margin_paisa: margin,
-        total_cost_paisa: cost,
+        ...totals,
         status: 'posted',
         version: 1,
         created_by: user.id,
@@ -366,7 +364,7 @@ export function createPurchase(db: DB, user: SessionUser, input: CreateInput): P
       doc_no: header.doc_no,
       version_after: 1,
       after: purchaseSnapshot(tx, header.id),
-      summary: { total_cost_paisa: cost, lines: lines.length, qty: lines.reduce((a, l) => a + l.qty, 0) },
+      summary: { total_cost_paisa: totals.total_cost_paisa, lines: lines.length, qty: lines.reduce((a, l) => a + l.qty, 0) },
       flags: user.role === 'operator' ? ['by_operator'] : [],
     });
 
@@ -398,12 +396,9 @@ export function updatePurchase(db: DB, user: SessionUser, id: number, input: Upd
 
     const touched = [...new Set([...existing.map((e) => e.variant_id), ...input.lines.map((l) => l.variant_id)])];
     const stockBefore = stockOnHandMany(tx, touched);
-    removeEntriesForSource(tx, 'purchase', id);
-    removeMovementsForSource(tx, 'purchase', id);
+    removePurchaseEffects(tx, id);
 
     const lines = priceLines(input.lines);
-    const gross = lines.reduce((a, l) => a + l.line_gross_paisa, 0);
-    const margin = lines.reduce((a, l) => a + l.line_margin_paisa, 0);
     const after = tx
       .update(purchases)
       .set({
@@ -411,9 +406,7 @@ export function updatePurchase(db: DB, user: SessionUser, id: number, input: Upd
         date: input.date,
         supplier_ref: input.supplier_ref,
         notes: input.notes,
-        gross_paisa: gross,
-        margin_paisa: margin,
-        total_cost_paisa: gross - margin,
+        ...purchaseTotals(lines),
         version: before.version + 1,
         updated_by: user.id,
         updated_at: nowIso(),
@@ -456,8 +449,7 @@ export function voidPurchase(db: DB, user: SessionUser, id: number, reason: stri
     const beforeSnap = purchaseSnapshot(tx, id);
     const touched = beforeSnap.lines.map((l) => l.variant_id);
     const stockBefore = stockOnHandMany(tx, touched);
-    removeEntriesForSource(tx, 'purchase', id);
-    removeMovementsForSource(tx, 'purchase', id);
+    removePurchaseEffects(tx, id);
     assertStockNotBelowZero(tx, stockBefore);
     tx.update(purchases).set({ status: 'void', version: before.version + 1, updated_by: user.id, updated_at: nowIso() }).where(eq(purchases.id, id)).run();
     recomputeAverageCosts(tx, touched);

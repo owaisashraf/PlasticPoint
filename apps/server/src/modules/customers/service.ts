@@ -36,14 +36,17 @@ interface ListRow {
   last_payment: string | null;
 }
 
+function openingFields(db: DbOrTx, id: number) {
+  const opening = getOpeningBalance(db, 'customer', id);
+  return { opening_balance_paisa: opening.amount_paisa, opening_balance_date: opening.date };
+}
+
 function toCustomer(db: DbOrTx, r: ListRow, overdue: OverdueSummary | undefined): Customer {
-  const opening = getOpeningBalance(db, 'customer', r.c.id);
   const { created_by: _cb, ...rest } = r.c;
   return {
     ...rest,
     balance_paisa: r.balance,
-    opening_balance_paisa: opening.amount_paisa,
-    opening_balance_date: opening.date,
+    ...openingFields(db, r.c.id),
     overdue_paisa: overdue?.overdue_paisa ?? 0,
     overdue_days: overdue?.max_days_overdue ?? 0,
     last_sale_date: r.last_sale,
@@ -53,8 +56,7 @@ function toCustomer(db: DbOrTx, r: ListRow, overdue: OverdueSummary | undefined)
 
 /** Audit snapshot: the stored fields plus the opening balance (not the derived balance). */
 function snapshot(db: DbOrTx, row: CustomerRow) {
-  const opening = getOpeningBalance(db, 'customer', row.id);
-  return { ...row, opening_balance_paisa: opening.amount_paisa, opening_balance_date: opening.date };
+  return { ...row, ...openingFields(db, row.id) };
 }
 
 function loadRow(db: DbOrTx, id: number): CustomerRow {

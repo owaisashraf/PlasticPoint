@@ -31,20 +31,19 @@ type AssetRow = typeof assets.$inferSelect;
  * earlier). Void assets carry no depreciation.
  */
 function toAsset(row: AssetRow, createdByName: string | null, asOf: string, withSchedule = false): Asset {
-  const dep = row;
   const at = row.disposal_date && row.disposal_date < asOf ? row.disposal_date : asOf;
-  const accumulated = row.status === 'void' ? 0 : accumulatedDepreciation(dep, at);
+  const accumulated = row.status === 'void' ? 0 : accumulatedDepreciation(row, at);
   const { created_by, updated_by: _u, updated_at: _ua, ...rest } = row;
   return {
     ...rest,
-    monthly_depreciation_paisa: depreciationSchedule({ ...dep, disposal_date: null })[0]?.charge_paisa ?? 0,
-    disposal_gain_paisa: row.status === 'disposed' ? disposalGainLoss(dep) : null,
+    monthly_depreciation_paisa: depreciationSchedule({ ...row, disposal_date: null })[0]?.charge_paisa ?? 0,
+    disposal_gain_paisa: row.status === 'disposed' ? disposalGainLoss(row) : null,
     as_of: at,
     accumulated_depreciation_paisa: accumulated,
     book_value_paisa: row.cost_paisa - accumulated,
     created_by_id: created_by,
     created_by_name: createdByName,
-    ...(withSchedule ? { schedule: row.status === 'void' ? [] : depreciationSchedule(dep) } : {}),
+    ...(withSchedule ? { schedule: row.status === 'void' ? [] : depreciationSchedule(row) } : {}),
   };
 }
 
@@ -79,6 +78,12 @@ export function listAssets(db: DB, q: ListQuery): { assets: Asset[]; totals: { c
 }
 
 // --- Writing ------------------------------------------------------------------------
+
+function loadRow(tx: DbOrTx, id: number): AssetRow {
+  const row = tx.select().from(assets).where(eq(assets.id, id)).get();
+  if (!row) throw notFound('Asset not found.');
+  return row;
+}
 
 /** Edits and voids treat an asset that is still on the books as "posted". */
 const asDoc = (r: AssetRow) => ({ ...r, status: r.status === 'void' ? 'void' : 'posted' });
@@ -132,8 +137,7 @@ export function createAsset(db: DB, user: SessionUser, input: CreateInput): Asse
 export function updateAsset(db: DB, user: SessionUser, id: number, input: UpdateInput): Asset {
   if (input.purchase_date > businessToday()) throw badRequest('The purchase date cannot be in the future.');
   return writeTx(db, (tx) => {
-    const row = tx.select().from(assets).where(eq(assets.id, id)).get();
-    if (!row) throw notFound('Asset not found.');
+    const row = loadRow(tx, id);
     assertCanEdit(user, asDoc(row), 'assets.manage');
     if (row.disposal_date && input.purchase_date > row.disposal_date) throw badRequest('The purchase date cannot be after the disposal date.');
     const before = snapshot(tx, id);
@@ -178,8 +182,7 @@ export function updateAsset(db: DB, user: SessionUser, id: number, input: Update
 export function disposeAsset(db: DB, user: SessionUser, id: number, input: DisposeInput): Asset {
   if (input.date > businessToday()) throw badRequest('The disposal date cannot be in the future.');
   return writeTx(db, (tx) => {
-    const row = tx.select().from(assets).where(eq(assets.id, id)).get();
-    if (!row) throw notFound('Asset not found.');
+    const row = loadRow(tx, id);
     if (row.status !== 'active') throw badRequest(row.status === 'disposed' ? 'This asset was already disposed of.' : 'This asset is void.');
     if (input.date < row.purchase_date) throw badRequest('The disposal date cannot be before the purchase date.');
     const before = snapshot(tx, id);
@@ -215,8 +218,7 @@ export function disposeAsset(db: DB, user: SessionUser, id: number, input: Dispo
 
 export function voidAsset(db: DB, user: SessionUser, id: number, reason: string): Asset {
   return writeTx(db, (tx) => {
-    const row = tx.select().from(assets).where(eq(assets.id, id)).get();
-    if (!row) throw notFound('Asset not found.');
+    const row = loadRow(tx, id);
     assertCanVoid(user, asDoc(row));
     const before = snapshot(tx, id);
     tx.update(assets).set({ status: 'void', version: row.version + 1, updated_by: user.id, updated_at: nowIso() }).where(eq(assets.id, id)).run();

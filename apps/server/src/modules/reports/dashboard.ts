@@ -46,7 +46,8 @@ export function dashboard(db: DB, user: SessionUser): Dashboard {
   if (!can(user, 'finance.view')) return redact(base, user);
 
   const settings = getSettings(db);
-  const fy = fiscalYear(fiscalYearStartOf(today, settings.fiscal_year_start_month), settings.fiscal_year_start_month);
+  const startMonth = settings.fiscal_year_start_month;
+  const fy = fiscalYear(fiscalYearStartOf(today, startMonth), startMonth);
   const month = today.slice(0, 7);
   const months = lastTwelveMonths(month);
   const byMonth = figuresByMonth(db, `${months[0]}-01`, today);

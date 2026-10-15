@@ -3,7 +3,7 @@ import { CUSTOMER_TYPES, formatPhone, paisaToInput, parseRupeesToPaisa, type Cus
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
-import { FormField } from '@/components/FormField';
+import { applyServerFieldErrors, FormField } from '@/components/FormField';
 import { MoneyInput } from '@/components/inputs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -109,9 +109,7 @@ export function CustomerFormDialog({
       onClose();
     },
     onError: (e) => {
-      if (e instanceof ApiError && e.fields) {
-        for (const [k, m] of Object.entries(e.fields)) form.setError(k as keyof FormValues, { message: m });
-      }
+      if (e instanceof ApiError) applyServerFieldErrors(e.fields, form.setError);
       toast.error(errorMessage(e));
     },
   });

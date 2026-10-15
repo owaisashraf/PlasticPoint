@@ -9,7 +9,6 @@ import {
   products,
   purchase_returns,
   purchases,
-  sale_items,
   sales,
   sales_return_items,
   sales_returns,
@@ -251,7 +250,7 @@ function buildReturnItems(tx: DbOrTx, sale: Sale, wantedLines: CreateInput['line
     const left = line.qty - line.returned_qty;
     const label = [line.item_code, line.color, line.size].filter(Boolean).join(' ');
     if (qty > left) throw badRequest(`${label}: only ${left} can still be returned (sold ${line.qty}, already returned ${line.returned_qty}).`);
-    const unitCost = tx.select({ c: sale_items.unit_cost_paisa }).from(sale_items).where(eq(sale_items.id, itemId)).get()?.c ?? 0;
+    const unitCost = line.unit_cost_paisa ?? 0;
     const net = returnedNetForLine({ line_net_paisa: line.line_net_paisa, qty: line.qty }, qty, left, creditedNet.get(itemId) ?? 0);
     const cost = qty * unitCost;
     return { line, qty, unit_cost_paisa: unitCost, line_net_paisa: net, line_cost_paisa: cost, profit_reversed_paisa: net - cost };

@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import { bpSchema } from './common';
 import { DEFAULT_WHATSAPP_MESSAGES, DEFAULT_WHATSAPP_PARAMS, parseWhatsAppParams, WHATSAPP_MODES } from './whatsapp';
 
-const bp = z.number().int().min(0).max(10_000);
 const prefix = z
   .string()
   .trim()
@@ -40,10 +40,10 @@ export const settingsSchema = z
     overdue_orange_max_days: z.number().int().min(2).max(730).default(45),
 
     // Price and discount
-    default_supplier_margin_bp: bp.default(1200),
-    default_customer_discount_bp: bp.default(1000),
-    retail_discount_reduction_bp: bp.default(0),
-    min_profit_bp: bp.default(0),
+    default_supplier_margin_bp: bpSchema.default(1200),
+    default_customer_discount_bp: bpSchema.default(1000),
+    retail_discount_reduction_bp: bpSchema.default(0),
+    min_profit_bp: bpSchema.default(0),
     below_min_profit_action: z.enum(['warn', 'require_owner']).default('warn'),
     operators_can_record_purchases: z.boolean().default(true),
     include_depreciation_in_profit: z.boolean().default(true),

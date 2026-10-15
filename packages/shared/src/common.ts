@@ -35,6 +35,12 @@ export const optionalPhoneSchema = z
     return e164;
   });
 
+/** A yes/no query string flag: "true" or "1" is true; missing is false. */
+export const boolQueryParamSchema = z
+  .enum(['true', 'false', '1', '0'])
+  .optional()
+  .transform((v) => v === 'true' || v === '1');
+
 export const listQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),

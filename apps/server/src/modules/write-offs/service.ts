@@ -34,7 +34,9 @@ function reversals(db: DbOrTx, writeOffId: number): WriteOff['reversals'] {
     .all();
 }
 
-const selectWriteOff = { w: write_offs, created_by_name: users.display_name };
+function writeOffQuery(db: DbOrTx) {
+  return db.select({ w: write_offs, created_by_name: users.display_name }).from(write_offs).leftJoin(users, eq(users.id, write_offs.created_by));
+}
 
 function toWriteOff(db: DbOrTx, r: { w: typeof write_offs.$inferSelect; created_by_name: string | null }): WriteOff {
   const revs = reversals(db, r.w.id);
@@ -56,16 +58,13 @@ function toWriteOff(db: DbOrTx, r: { w: typeof write_offs.$inferSelect; created_
 }
 
 export function getWriteOff(db: DbOrTx, id: number): WriteOff {
-  const r = db.select(selectWriteOff).from(write_offs).leftJoin(users, eq(users.id, write_offs.created_by)).where(eq(write_offs.id, id)).get();
+  const r = writeOffQuery(db).where(eq(write_offs.id, id)).get();
   if (!r) throw notFound('Write-off not found.');
   return toWriteOff(db, r);
 }
 
 export function listWriteOffs(db: DB, customerId: number): WriteOff[] {
-  return db
-    .select(selectWriteOff)
-    .from(write_offs)
-    .leftJoin(users, eq(users.id, write_offs.created_by))
+  return writeOffQuery(db)
     .where(eq(write_offs.customer_id, customerId))
     .orderBy(desc(write_offs.date), desc(write_offs.id))
     .all()

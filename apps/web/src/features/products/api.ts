@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { LowStockRow, PriceHistoryEntry, Product, StockMovement, StockValuationRow } from '@shopledger/shared';
-import { api } from '@/lib/api';
+import { api, queryString } from '@/lib/api';
 
 export const PRODUCTS_KEY = ['products'] as const;
 
@@ -12,11 +12,9 @@ export interface ProductFilters {
 }
 
 export function useProducts(f: ProductFilters, enabled = true) {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== '') p.set(k, String(v));
   return useQuery({
     queryKey: [...PRODUCTS_KEY, 'list', f],
-    queryFn: () => api.get<{ products: Product[]; total: number }>(`/api/products?${p}`),
+    queryFn: () => api.get<{ products: Product[]; total: number }>(`/api/products?${queryString({ ...f })}`),
     enabled,
     placeholderData: (prev) => prev,
   });
@@ -29,10 +27,11 @@ export function useProduct(id: number) {
   });
 }
 
-export function useCategories() {
+export function useCategories(enabled = true) {
   return useQuery({
     queryKey: [...PRODUCTS_KEY, 'categories'],
     queryFn: () => api.get<{ categories: string[] }>('/api/products/categories').then((r) => r.categories),
+    enabled,
   });
 }
 

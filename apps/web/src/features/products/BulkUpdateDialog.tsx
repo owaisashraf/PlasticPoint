@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { api, errorMessage } from '@/lib/api';
-import { cn } from '@/lib/utils';
 import { PRODUCTS_KEY, useCategories } from './api';
 
 type ChangeKind = 'price_percent' | 'price_amount' | 'supplier_margin' | 'default_discount';
@@ -45,8 +44,8 @@ export function BulkUpdateDialog({ selectedIds, onClose }: { selectedIds: number
       if (kind !== 'price_percent' && neg) throw new Error('Margins and discounts cannot be negative');
       change = { kind, bp: neg ? -bp : bp };
     }
-    const target = targetKind === 'category' ? { kind: 'category', category } : { kind: 'products', product_ids: selectedIds };
     if (targetKind === 'category' && !category) throw new Error('Pick a category');
+    const target = targetKind === 'category' ? { kind: 'category', category } : { kind: 'products', product_ids: selectedIds };
     return { target, change, reason, dry_run };
   };
 
@@ -74,12 +73,11 @@ export function BulkUpdateDialog({ selectedIds, onClose }: { selectedIds: number
   };
 
   const reset = () => setPreview(null);
-  const fmt = (r: BulkUpdateRow['before']) =>
-    kind === 'supplier_margin'
-      ? `${bpToPercentString(r.supplier_margin_bp)}%`
-      : kind === 'default_discount'
-        ? `${bpToPercentString(r.default_customer_discount_bp)}%`
-        : formatPaisa(r.list_price_paisa);
+  const fmt = (r: BulkUpdateRow['before']) => {
+    if (kind === 'supplier_margin') return `${bpToPercentString(r.supplier_margin_bp)}%`;
+    if (kind === 'default_discount') return `${bpToPercentString(r.default_customer_discount_bp)}%`;
+    return formatPaisa(r.list_price_paisa);
+  };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -183,7 +181,7 @@ export function BulkUpdateDialog({ selectedIds, onClose }: { selectedIds: number
                       <span className="font-mono font-semibold">{r.item_code}</span> {r.name}
                     </td>
                     <td className="amount px-3 py-1.5">{fmt(r.before)}</td>
-                    <td className={cn('amount px-3 py-1.5 font-semibold')}>{fmt(r.after)}</td>
+                    <td className="amount px-3 py-1.5 font-semibold">{fmt(r.after)}</td>
                   </tr>
                 ))}
               </tbody>

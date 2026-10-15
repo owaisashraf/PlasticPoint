@@ -127,11 +127,17 @@ function show(field: string, v: unknown): string {
 
 const label = (f: string) => FIELD_LABEL[f] ?? f.replace(/_paisa$|_bp$/, '').replaceAll('_', ' ');
 
+function flagColour(flag: string): string {
+  if (flag === 'by_operator') return 'bg-slate-100 text-slate-700';
+  if (flag === 'voided' || flag === 'sold_below_cost') return 'bg-red-100 text-red-800';
+  return 'bg-amber-100 text-amber-900';
+}
+
 function FlagChips({ flags }: { flags: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {flags.map((f) => (
-        <span key={f} className={cn('rounded px-1.5 py-0.5 text-xs font-medium', f === 'by_operator' ? 'bg-slate-100 text-slate-700' : f === 'voided' || f === 'sold_below_cost' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900')}>
+        <span key={f} className={cn('rounded px-1.5 py-0.5 text-xs font-medium', flagColour(f))}>
           {FLAG_LABEL[f] ?? f}
         </span>
       ))}
@@ -357,9 +363,9 @@ export function ChangeHistoryPage() {
 
 function VerifyCard({ r }: { r: AuditVerifyResult }) {
   return (
-    <Card className={r.ok ? 'mb-4 max-w-2xl border-green-600' : 'mb-4 max-w-2xl border-destructive'}>
+    <Card className={cn('mb-4 max-w-2xl', r.ok ? 'border-green-600' : 'border-destructive')}>
       <CardHeader>
-        <CardTitle className={r.ok ? 'flex items-center gap-2 text-success' : 'flex items-center gap-2 text-destructive'}>
+        <CardTitle className={cn('flex items-center gap-2', r.ok ? 'text-success' : 'text-destructive')}>
           {r.ok ? <ShieldCheck /> : <ShieldAlert />}
           {r.ok ? 'The audit log is intact' : 'The audit log has been tampered with'}
         </CardTitle>
@@ -546,13 +552,13 @@ function ChangeDialog({ id, onClose, onOpen }: { id: number; onClose: () => void
               </Link>
             )}
 
-            {c.review ? (
+            {c.review && (
               <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-900">
                 <Check className="mr-1 inline size-4" />
                 Reviewed by {c.review.reviewed_by_name ?? '—'} on {formatDateTime(c.review.reviewed_at)}
                 {c.review.note ? `: ${c.review.note}` : ''}
               </p>
-            ) : null}
+            )}
           </div>
         )}
         <DialogFooter className="items-center">
@@ -578,11 +584,13 @@ const LINE_FIELDS = ['qty', 'list_price_paisa', 'discount_bp', 'supplier_margin_
 
 function lineText(l: Record<string, unknown>): string {
   const name = [l.item_code, l.color, l.size].filter(Boolean).join(' ');
+  // The line's net amount, or its cost for lines without one (purchases).
+  const result = typeof l.line_net_paisa === 'number' ? l.line_net_paisa : l.line_cost_paisa;
   const parts = [
     typeof l.qty === 'number' ? `${l.qty} ×` : '',
     typeof l.list_price_paisa === 'number' ? formatPaisa(l.list_price_paisa) : '',
     typeof l.discount_bp === 'number' ? `− ${formatBp(l.discount_bp)}` : '',
-    typeof l.line_net_paisa === 'number' ? `= ${formatPaisa(l.line_net_paisa)}` : typeof l.line_cost_paisa === 'number' ? `= ${formatPaisa(l.line_cost_paisa)}` : '',
+    typeof result === 'number' ? `= ${formatPaisa(result)}` : '',
     typeof l.amount_paisa === 'number' && !name ? formatPaisa(l.amount_paisa) : '',
   ].filter(Boolean);
   return `${name || (l.sale_doc_no as string | undefined) || ''} ${parts.join(' ')}`.trim();
@@ -610,6 +618,12 @@ function Stat({ k, children }: { k: string; children: ReactNode }) {
 
 const REASON_LABEL: Record<string, string> = { discount_changed: 'Discount changed', below_min_profit: 'Below minimum profit', below_cost: 'Below cost' };
 
+function reasonVariant(reason: string): 'danger' | 'warning' | 'default' {
+  if (reason === 'below_cost') return 'danger';
+  if (reason === 'below_min_profit') return 'warning';
+  return 'default';
+}
+
 /** Sale lines with a changed discount, profit below the minimum, or sold below cost, grouped by who made the sale. */
 function DiscountOverrides() {
   const [from, setFrom] = useState('');
@@ -620,7 +634,10 @@ function DiscountOverrides() {
   });
   const rows = data.data ?? [];
   const byUser = new Map<string, DiscountOverrideRow[]>();
-  for (const r of rows) byUser.set(r.user_name ?? '—', [...(byUser.get(r.user_name ?? '—') ?? []), r]);
+  for (const r of rows) {
+    const user = r.user_name ?? '—';
+    byUser.set(user, [...(byUser.get(user) ?? []), r]);
+  }
   return (
     <div>
       <div className="my-3 flex flex-wrap items-end gap-2">
@@ -649,44 +666,47 @@ function DiscountOverrides() {
             </tr>
           </thead>
           <tbody>
-            {[...byUser.entries()].map(([user, rs]) => (
-              <Fragment key={user}>
-                <tr className="border-t-2 border-border bg-muted/50">
-                  <td colSpan={9} className="px-3 py-1.5 font-semibold">
-                    {user} · {rs.length} line{rs.length === 1 ? '' : 's'}
-                    {' · '}
-                    {[...new Set(rs.map((r) => r.item_code))].length} product{[...new Set(rs.map((r) => r.item_code))].length === 1 ? '' : 's'}
-                  </td>
-                </tr>
-                {rs.map((r, i) => (
-                  <tr key={`${r.sale_id}-${i}`} className="border-t border-border">
-                    <td className="px-3 py-1.5">
-                      <Link to={`/sales/${r.sale_id}`} className="font-mono font-semibold text-primary hover:underline">
-                        {r.doc_no}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-1.5">{r.date}</td>
-                    <td className="px-3 py-1.5">{r.customer_name}</td>
-                    <td className="px-3 py-1.5">
-                      <span className="font-mono">{r.item_code}</span> {[r.color, r.size].filter(Boolean).join(' ')}
-                    </td>
-                    <td className="amount px-3 py-1.5">{r.qty}</td>
-                    <td className="amount px-3 py-1.5">
-                      {formatBp(r.default_discount_bp)} → <span className="font-semibold">{formatBp(r.discount_bp)}</span>
-                    </td>
-                    <td className="amount px-3 py-1.5">{formatPaisa(r.line_net_paisa)}</td>
-                    <td className={cn('amount px-3 py-1.5', r.profit_paisa < 0 && 'font-semibold text-destructive')}>{formatPaisa(r.profit_paisa)}</td>
-                    <td className="px-3 py-1.5">
-                      {r.reasons.map((x) => (
-                        <Badge key={x} variant={x === 'below_cost' ? 'danger' : x === 'below_min_profit' ? 'warning' : 'default'} className="mr-1">
-                          {REASON_LABEL[x] ?? x}
-                        </Badge>
-                      ))}
+            {[...byUser.entries()].map(([user, rs]) => {
+              const products = new Set(rs.map((r) => r.item_code)).size;
+              return (
+                <Fragment key={user}>
+                  <tr className="border-t-2 border-border bg-muted/50">
+                    <td colSpan={9} className="px-3 py-1.5 font-semibold">
+                      {user} · {rs.length} line{rs.length === 1 ? '' : 's'}
+                      {' · '}
+                      {products} product{products === 1 ? '' : 's'}
                     </td>
                   </tr>
-                ))}
-              </Fragment>
-            ))}
+                  {rs.map((r, i) => (
+                    <tr key={`${r.sale_id}-${i}`} className="border-t border-border">
+                      <td className="px-3 py-1.5">
+                        <Link to={`/sales/${r.sale_id}`} className="font-mono font-semibold text-primary hover:underline">
+                          {r.doc_no}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-1.5">{r.date}</td>
+                      <td className="px-3 py-1.5">{r.customer_name}</td>
+                      <td className="px-3 py-1.5">
+                        <span className="font-mono">{r.item_code}</span> {[r.color, r.size].filter(Boolean).join(' ')}
+                      </td>
+                      <td className="amount px-3 py-1.5">{r.qty}</td>
+                      <td className="amount px-3 py-1.5">
+                        {formatBp(r.default_discount_bp)} → <span className="font-semibold">{formatBp(r.discount_bp)}</span>
+                      </td>
+                      <td className="amount px-3 py-1.5">{formatPaisa(r.line_net_paisa)}</td>
+                      <td className={cn('amount px-3 py-1.5', r.profit_paisa < 0 && 'font-semibold text-destructive')}>{formatPaisa(r.profit_paisa)}</td>
+                      <td className="px-3 py-1.5">
+                        {r.reasons.map((x) => (
+                          <Badge key={x} variant={reasonVariant(x)} className="mr-1">
+                            {REASON_LABEL[x] ?? x}
+                          </Badge>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

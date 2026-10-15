@@ -42,12 +42,14 @@ export const manualAllocationSchema = z.object({
   amount_paisa: amountSchema,
 });
 
+/** Empty: allocate FIFO (oldest first). Otherwise exactly these; anything left is an advance. */
+const allocationsField = z.array(manualAllocationSchema).max(500).default([]);
+
 export const createReceiptSchema = z
   .object({
     customer_id: z.number().int().positive(),
     ...moneyFields,
-    /** Empty: allocate FIFO (oldest first). Otherwise exactly these; anything left is an advance. */
-    allocations: z.array(manualAllocationSchema).max(500).default([]),
+    allocations: allocationsField,
   })
   .strict()
   .superRefine(chequeNeedsNumber);
@@ -166,7 +168,7 @@ export type WriteOff = z.infer<typeof writeOffSchema>;
 export const updateReceiptSchema = z
   .object({
     ...moneyFields,
-    allocations: z.array(manualAllocationSchema).max(500).default([]),
+    allocations: allocationsField,
     change_reason: changeReasonSchema,
   })
   .strict()

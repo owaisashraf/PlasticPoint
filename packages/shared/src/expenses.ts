@@ -12,10 +12,10 @@ export const expenseCategorySchema = z.object({
 });
 export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;
 
-export const createExpenseCategorySchema = z.object({ name: z.string().trim().min(2, 'Enter a name').max(60) }).strict();
-export const updateExpenseCategorySchema = z
-  .object({ name: z.string().trim().min(2, 'Enter a name').max(60).optional(), active: z.boolean().optional() })
-  .strict();
+const categoryName = z.string().trim().min(2, 'Enter a name').max(60);
+
+export const createExpenseCategorySchema = z.object({ name: categoryName }).strict();
+export const updateExpenseCategorySchema = z.object({ name: categoryName.optional(), active: z.boolean().optional() }).strict();
 
 // --- Expenses (CLAUDE.md 8.12) ------------------------------------------------------
 

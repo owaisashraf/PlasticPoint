@@ -48,3 +48,29 @@ export const api = {
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : 'Something went wrong. Please try again.';
 }
+
+/** The first field error from the server (e.g. "Cheque number is required"), else the general message. */
+export function firstFieldError(e: unknown): string {
+  return (e instanceof ApiError && e.fields ? Object.values(e.fields)[0] : undefined) ?? errorMessage(e);
+}
+
+/** Query string from filters, leaving out empty values (undefined, '' and false). */
+export function queryString(params: Record<string, string | number | boolean | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '' && v !== false) p.set(k, String(v));
+  return p.toString();
+}
+
+/** Logs a print through `printUrl` (a POST returning the PDF's url), then opens the PDF in a new tab. */
+export async function printInNewTab(printUrl: string): Promise<void> {
+  // Open the tab first (inside the click) so the browser does not block it.
+  const tab = window.open('', '_blank');
+  try {
+    const { url } = await api.post<{ url: string }>(printUrl);
+    if (tab) tab.location.href = url;
+    else window.location.href = url;
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}

@@ -236,18 +236,16 @@ export class BackupService {
   // --- Reading ---------------------------------------------------------------
 
   lastOk(): LogRow | undefined {
-    return this.dbh.db.select().from(backup_log).where(eq(backup_log.status, 'ok')).orderBy(desc(backup_log.id)).limit(1).get();
+    return this.#lastWithStatus('ok');
+  }
+
+  #lastWithStatus(status: 'ok' | 'failed'): LogRow | undefined {
+    return this.dbh.db.select().from(backup_log).where(eq(backup_log.status, status)).orderBy(desc(backup_log.id)).limit(1).get();
   }
 
   status(): BackupStatus {
     const lastOk = this.lastOk();
-    const lastFailed = this.dbh.db
-      .select()
-      .from(backup_log)
-      .where(eq(backup_log.status, 'failed'))
-      .orderBy(desc(backup_log.id))
-      .limit(1)
-      .get();
+    const lastFailed = this.#lastWithStatus('failed');
     const failedSinceOk = lastFailed && (!lastOk || lastFailed.id > lastOk.id) ? lastFailed : undefined;
     return {
       last_ok_at: lastOk?.started_at ?? null,
@@ -383,6 +381,10 @@ interface CopyCheck {
   tail: { id: number | null; hash: string | null };
 }
 
+function failedCheck(detail: string): CopyCheck {
+  return { ok: false, detail, tail: { id: null, hash: null } };
+}
+
 /**
  * Prepares a fresh backup copy: switches it to a single self-contained file
  * (rollback journal instead of WAL), runs PRAGMA integrity_check and reads the
@@ -393,10 +395,10 @@ export function checkBackupCopy(path: string): CopyCheck {
   try {
     copy.pragma('journal_mode = DELETE');
     const result = copy.pragma('integrity_check', { simple: true });
-    if (result !== 'ok') return { ok: false, detail: String(result), tail: { id: null, hash: null } };
+    if (result !== 'ok') return failedCheck(String(result));
     return { ok: true, detail: 'ok', tail: auditTail(copy) };
   } catch (e) {
-    return { ok: false, detail: errorMessage(e), tail: { id: null, hash: null } };
+    return failedCheck(errorMessage(e));
   } finally {
     copy.close();
   }
@@ -404,37 +406,36 @@ export function checkBackupCopy(path: string): CopyCheck {
 
 /** Checks that a file is a healthy ShopLedger database this version can open. */
 export function validateBackupFile(path: string, migrationsDir: string): CopyCheck {
-  const fail = (detail: string): CopyCheck => ({ ok: false, detail, tail: { id: null, hash: null } });
   let copy: Database.Database;
   try {
     copy = new Database(path, { readonly: true, fileMustExist: true });
   } catch (e) {
-    return fail(`it could not be opened (${errorMessage(e)}).`);
+    return failedCheck(`it could not be opened (${errorMessage(e)}).`);
   }
   try {
     const integrity = copy.pragma('integrity_check', { simple: true });
-    if (integrity !== 'ok') return fail(`the file is damaged (${String(integrity)}).`);
+    if (integrity !== 'ok') return failedCheck(`the file is damaged (${String(integrity)}).`);
 
     const tables = new Set(
       (copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name),
     );
     for (const t of ['users', 'audit_log', 'settings', 'backup_log', '__drizzle_migrations']) {
-      if (!tables.has(t)) return fail('it is not a ShopLedger database.');
+      if (!tables.has(t)) return failedCheck('it is not a ShopLedger database.');
     }
 
     const applied = (copy.prepare('SELECT COUNT(*) AS n FROM __drizzle_migrations').get() as { n: number }).n;
     const journal = JSON.parse(readFileSync(join(migrationsDir, 'meta/_journal.json'), 'utf8')) as { entries: unknown[] };
-    if (applied > journal.entries.length) return fail('it was made by a newer version of ShopLedger. Update ShopLedger first.');
+    if (applied > journal.entries.length) return failedCheck('it was made by a newer version of ShopLedger. Update ShopLedger first.');
 
     const superusers = (copy.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'superuser'").get() as { n: number }).n;
-    if (superusers !== 1) return fail('it does not contain a superuser account.');
+    if (superusers !== 1) return failedCheck('it does not contain a superuser account.');
 
     const audit = verifyAudit(copy);
-    if (!audit.ok) return fail(`its audit log failed the integrity check (${audit.problems[0] ?? 'unknown problem'}).`);
+    if (!audit.ok) return failedCheck(`its audit log failed the integrity check (${audit.problems[0] ?? 'unknown problem'}).`);
 
     return { ok: true, detail: 'ok', tail: auditTail(copy) };
   } catch (e) {
-    return fail(`it could not be read (${errorMessage(e)}).`);
+    return failedCheck(`it could not be read (${errorMessage(e)}).`);
   } finally {
     copy.close();
   }

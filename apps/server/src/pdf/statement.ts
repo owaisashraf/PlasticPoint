@@ -21,9 +21,8 @@ export interface StatementParty {
 
 /** Customers: positive = they owe us. Suppliers: positive = we owe them. */
 function balanceText(paisa: number, kind: StatementParty['kind']): string {
-  if (paisa === 0) return formatPaisa(0);
-  if (kind === 'customer') return paisa < 0 ? `Advance ${formatPaisa(-paisa)}` : formatPaisa(paisa);
-  return paisa < 0 ? `Advance paid ${formatPaisa(-paisa)}` : formatPaisa(paisa);
+  if (paisa >= 0) return formatPaisa(paisa);
+  return `${kind === 'customer' ? 'Advance' : 'Advance paid'} ${formatPaisa(-paisa)}`;
 }
 
 export function statementDocDefinition(settings: Settings, party: StatementParty, st: Statement, range: { from?: string; to?: string }): TDocumentDefinitions {

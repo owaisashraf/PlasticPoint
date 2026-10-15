@@ -1,5 +1,4 @@
-import type { Sale } from '@shopledger/shared';
-import { formatPaisa } from '@shopledger/shared';
+import { formatPaisa, type Sale } from '@shopledger/shared';
 import { MessageCircle, Printer, Receipt } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, NativeSelect } from '@/components/ui/input';
 import { ChangeReasonField, changeReasonOk } from '@/features/documents';
-import { api, ApiError, errorMessage } from '@/lib/api';
+import { api, errorMessage, firstFieldError } from '@/lib/api';
 import { todayKarachi } from '@/lib/utils';
 import { ASSETS_KEY, CATEGORY_LABEL } from './api';
 
@@ -55,7 +55,7 @@ export function AssetFormDialog({ asset, onClose, onSaved }: { asset?: Asset; on
       onSaved?.(saved);
       onClose();
     },
-    onError: (e) => setError(e instanceof ApiError && e.fields ? (Object.values(e.fields)[0] ?? errorMessage(e)) : errorMessage(e)),
+    onError: (e) => setError(firstFieldError(e)),
   });
 
   const submit = () => {

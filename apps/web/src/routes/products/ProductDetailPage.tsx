@@ -181,7 +181,7 @@ function VariantsTable({ product, canEdit, showCost }: { product: Product; canEd
   const variants = product.variants ?? [];
   const [showInactive, setShowInactive] = useState(false);
   const shown = variants.filter((v) => v.active || showInactive);
-  const inactiveCount = variants.length - variants.filter((v) => v.active).length;
+  const inactiveCount = variants.filter((v) => !v.active).length;
   return (
     <div>
       <table className="w-full text-[15px]">

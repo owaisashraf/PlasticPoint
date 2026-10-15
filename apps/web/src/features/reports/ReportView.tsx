@@ -19,7 +19,8 @@ import { Input, NativeSelect } from '@/components/ui/input';
 import { useCities, usePublicSettings } from '@/features/customers/api';
 import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import { useExpenseCategories } from '@/features/expenses/api';
-import { api, errorMessage } from '@/lib/api';
+import { useCategories } from '@/features/products/api';
+import { api, errorMessage, queryString } from '@/lib/api';
 import { cn, todayKarachi } from '@/lib/utils';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -43,12 +44,6 @@ function cellText(v: ReportCell | undefined, kind: ReportKind): string {
 }
 
 const numeric = (k: ReportKind) => k === 'money' || k === 'int' || k === 'percent' || k === 'days';
-
-function qs(f: Record<string, string | number | boolean | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== '' && v !== false) p.set(k, String(v));
-  return p.toString();
-}
 
 function monthStart(d: string): string {
   return `${d.slice(0, 7)}-01`;
@@ -84,7 +79,7 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
   const [compare, setCompare] = useState(false);
 
   const cities = useCities(has('city'));
-  const categories = useQuery({ queryKey: ['products', 'categories'], queryFn: () => api.get<{ categories: string[] }>('/api/products/categories').then((r) => r.categories), enabled: has('category') });
+  const categories = useCategories(has('category'));
   const expenseCats = useExpenseCategories(has('expense_category'));
 
   const params = {
@@ -106,7 +101,7 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
     compare: has('compare') ? compare : undefined,
     ...fixed,
   };
-  const query = qs(params);
+  const query = queryString(params);
   const report = useQuery({
     queryKey: ['reports', def.key, query],
     queryFn: () => api.get<ReportResult>(`/api/reports/${def.key}?${query}`),
@@ -266,11 +261,11 @@ export function ReportView({ def, fixed = {}, compact = false }: { def: ReportDe
             </NativeSelect>
           )}
           <div className="ml-auto flex gap-2">
-            <Button variant="outline" onClick={() => window.open(`/api/reports/${def.key}?${qs({ ...params, format: 'pdf' })}`, '_blank')}>
+            <Button variant="outline" onClick={() => window.open(`/api/reports/${def.key}?${queryString({ ...params, format: 'pdf' })}`, '_blank')}>
               <Printer /> Print / PDF
             </Button>
             <Button variant="outline" asChild>
-              <a href={`/api/reports/${def.key}?${qs({ ...params, format: 'csv' })}`} download>
+              <a href={`/api/reports/${def.key}?${queryString({ ...params, format: 'csv' })}`} download>
                 <FileDown /> Export CSV
               </a>
             </Button>
@@ -336,7 +331,7 @@ function ReportTable({ r, onOpen }: { r: ReportResult; onOpen: (link: string) =>
                 const k = kindFor(row, c.kind);
                 const v = row[c.key];
                 return (
-                  <td key={c.key} className={cn('px-3 py-1.5', numeric(k) ? 'amount whitespace-nowrap' : '', typeof v === 'number' && v < 0 && k === 'money' && 'text-destructive')}>
+                  <td key={c.key} className={cn('px-3 py-1.5', numeric(k) && 'amount whitespace-nowrap', typeof v === 'number' && v < 0 && k === 'money' && 'text-destructive')}>
                     {cellText(v, k)}
                   </td>
                 );

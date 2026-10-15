@@ -64,27 +64,28 @@ function groupThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+/** Whole rupees and leftover paisa of the absolute amount: 123450 -> 1234 and 50. */
+function splitPaisa(paisa: number): { rupees: number; frac: number } {
+  assertInt(paisa, 'paisa');
+  const abs = Math.abs(paisa);
+  return { rupees: Math.floor(abs / PAISA_PER_RUPEE), frac: abs % PAISA_PER_RUPEE };
+}
+
 /**
  * "Rs 1,234,567" — paisa shown only when non-zero ("Rs 1,234.50").
  * Negative amounts get a leading minus ("-Rs 500").
  */
 export function formatPaisa(paisa: number): string {
-  assertInt(paisa, 'paisa');
+  const { rupees, frac } = splitPaisa(paisa);
   const sign = paisa < 0 ? '-' : '';
-  const abs = Math.abs(paisa);
-  const rupees = Math.floor(abs / PAISA_PER_RUPEE);
-  const frac = abs % PAISA_PER_RUPEE;
   const fracStr = frac === 0 ? '' : `.${String(frac).padStart(2, '0')}`;
   return `${sign}Rs ${groupThousands(String(rupees))}${fracStr}`;
 }
 
 /** "1234.5" style text for form inputs (no "Rs", no grouping). */
 export function paisaToInput(paisa: number): string {
-  assertInt(paisa, 'paisa');
+  const { rupees, frac } = splitPaisa(paisa);
   const sign = paisa < 0 ? '-' : '';
-  const abs = Math.abs(paisa);
-  const rupees = Math.floor(abs / PAISA_PER_RUPEE);
-  const frac = abs % PAISA_PER_RUPEE;
   if (frac === 0) return `${sign}${rupees}`;
   return `${sign}${rupees}.${String(frac).padStart(2, '0').replace(/0$/, '')}`;
 }
@@ -149,11 +150,8 @@ export function numberToWordsPk(n: number): string {
 
 /** "Rupees Two Lakh Thirty Four Thousand Only" / "... and Fifty Paisa Only". */
 export function amountInWords(paisa: number): string {
-  assertInt(paisa, 'paisa');
+  const { rupees, frac } = splitPaisa(paisa);
   const neg = paisa < 0 ? 'Minus ' : '';
-  const abs = Math.abs(paisa);
-  const rupees = Math.floor(abs / PAISA_PER_RUPEE);
-  const p = abs % PAISA_PER_RUPEE;
   const words = `Rupees ${neg}${numberToWordsPk(rupees)}`;
-  return p ? `${words} and ${under100(p)} Paisa Only` : `${words} Only`;
+  return frac ? `${words} and ${under100(frac)} Paisa Only` : `${words} Only`;
 }

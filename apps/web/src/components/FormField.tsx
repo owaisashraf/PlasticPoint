@@ -18,7 +18,8 @@ export function FormField({
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
-      {error ? <p className="text-sm font-medium text-destructive">{error}</p> : hint ? <p className="text-sm text-muted-foreground">{hint}</p> : null}
+      {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+      {!error && hint && <p className="text-sm text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -30,11 +31,10 @@ export function applyServerFieldErrors(
   prefix = '',
 ): boolean {
   if (!fields) return false;
-  let any = false;
-  for (const [path, message] of Object.entries(fields)) {
+  const entries = Object.entries(fields);
+  for (const [path, message] of entries) {
     const name = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
     setError(name as never, { message });
-    any = true;
   }
-  return any;
+  return entries.length > 0;
 }

@@ -43,14 +43,16 @@ export function OverduePage() {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [paying, setPaying] = useState<Customer | null>(null);
 
-  const filters = {
-    q: q.trim() || undefined,
-    type: type || undefined,
-    city: city || undefined,
+  let badDebt = includeBad ? 'include' : 'exclude';
+  if (tab === 'bad_debt') badDebt = 'only';
+  // qs() leaves out empty filters.
+  const query = qs({
+    q: q.trim(),
+    type,
+    city,
     min_days: minDays ? Number(minDays) : undefined,
-    bad_debt: tab === 'bad_debt' ? 'only' : includeBad ? 'include' : 'exclude',
-  };
-  const query = qs({ ...filters });
+    bad_debt: badDebt,
+  });
   const list = useQuery({
     queryKey: [...OVERDUE_KEY, 'list', query],
     queryFn: () => api.get<OverdueList>(`/api/overdue?${query}`),

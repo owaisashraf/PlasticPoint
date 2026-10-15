@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { PermissionKey } from '@shopledger/shared';
 import { Navigate, Route, Routes, useLocation } from 'react-router';
 import { AppShell } from './components/AppShell';
 import { ComingSoon } from './components/ComingSoon';
@@ -14,10 +15,9 @@ import { DashboardPage } from './routes/dashboard/DashboardPage';
 import { LoginPage } from './routes/login/LoginPage';
 import { ProductDetailPage } from './routes/products/ProductDetailPage';
 import { ProductsPage } from './routes/products/ProductsPage';
-import { NewPurchasePage } from './routes/purchases/NewPurchasePage';
+import { EditPurchasePage, NewPurchasePage } from './routes/purchases/NewPurchasePage';
 import { PurchaseDetailPage } from './routes/purchases/PurchaseDetailPage';
 import { PurchasesPage } from './routes/purchases/PurchasesPage';
-import { EditPurchasePage } from './routes/purchases/NewPurchasePage';
 import { AssetDetailPage } from './routes/assets/AssetDetailPage';
 import { AssetsPage } from './routes/assets/AssetsPage';
 import { ExpensesPage } from './routes/expenses/ExpensesPage';
@@ -47,6 +47,19 @@ const BUILT_PAGES: Record<string, ReactNode> = {
   '/reports': <ReportsPage />,
   '/change-history': <ChangeHistoryPage />,
 };
+
+/** Pages that are not in the menu: details, edits and new purchases. */
+const OTHER_PAGES: { path: string; permission: PermissionKey; element: ReactNode }[] = [
+  { path: '/customers/:id', permission: 'customers.view', element: <CustomerDetailPage /> },
+  { path: '/products/:id', permission: 'products.view', element: <ProductDetailPage /> },
+  { path: '/reports/:key', permission: 'reports.operational', element: <ReportPage /> },
+  { path: '/assets/:id', permission: 'assets.manage', element: <AssetDetailPage /> },
+  { path: '/sales/:id/edit', permission: 'documents.edit_own_same_day', element: <EditSalePage /> },
+  { path: '/purchases/:id/edit', permission: 'documents.edit_own_same_day', element: <EditPurchasePage /> },
+  { path: '/sales/:id', permission: 'sales.view', element: <SaleDetailPage /> },
+  { path: '/purchases/new', permission: 'purchases.create', element: <NewPurchasePage /> },
+  { path: '/purchases/:id', permission: 'purchases.view', element: <PurchaseDetailPage /> },
+];
 
 export function App() {
   const setup = useSetupStatus();
@@ -99,78 +112,9 @@ export function App() {
             }
           />
         ))}
-        <Route
-          path="/customers/:id"
-          element={
-            <Guard permission="customers.view">
-              <CustomerDetailPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/products/:id"
-          element={
-            <Guard permission="products.view">
-              <ProductDetailPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/reports/:key"
-          element={
-            <Guard permission="reports.operational">
-              <ReportPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/assets/:id"
-          element={
-            <Guard permission="assets.manage">
-              <AssetDetailPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/sales/:id/edit"
-          element={
-            <Guard permission="documents.edit_own_same_day">
-              <EditSalePage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/purchases/:id/edit"
-          element={
-            <Guard permission="documents.edit_own_same_day">
-              <EditPurchasePage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/sales/:id"
-          element={
-            <Guard permission="sales.view">
-              <SaleDetailPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/purchases/new"
-          element={
-            <Guard permission="purchases.create">
-              <NewPurchasePage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/purchases/:id"
-          element={
-            <Guard permission="purchases.view">
-              <PurchaseDetailPage />
-            </Guard>
-          }
-        />
+        {OTHER_PAGES.map((page) => (
+          <Route key={page.path} path={page.path} element={<Guard permission={page.permission}>{page.element}</Guard>} />
+        ))}
         <Route path="/account" element={<AccountPage />} />
         <Route path="*" element={<FullPageMessage title="Page not found" detail="Use the menu on the left." inline />} />
       </Route>

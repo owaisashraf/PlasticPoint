@@ -253,16 +253,12 @@ export function NewSalePage({ editId }: { editId?: number } = {}) {
   const headerIssues = (result?.issues ?? []).filter((x) => x.line_index === null);
 
   const save = useMutation({
-    mutationFn: (v: { approval?: ApprovalInput; share: boolean }) =>
-      editId === undefined
-        ? api.post<{ sale: Sale }>('/api/sales', { ...body, customer_id: customer?.id, expected_total_paisa: total, ...(v.approval ? { approval: v.approval } : {}) })
-        : api.put<{ sale: Sale }>(`/api/sales/${editId}`, {
-            ...body,
-            customer_id: customer?.id,
-            expected_total_paisa: total,
-            change_reason: changeReason,
-            ...(v.approval ? { approval: v.approval } : {}),
-          }),
+    mutationFn: (v: { approval?: ApprovalInput; share: boolean }) => {
+      const payload = { ...body, customer_id: customer?.id, expected_total_paisa: total, ...(v.approval ? { approval: v.approval } : {}) };
+      return editId === undefined
+        ? api.post<{ sale: Sale }>('/api/sales', payload)
+        : api.put<{ sale: Sale }>(`/api/sales/${editId}`, { ...payload, change_reason: changeReason });
+    },
     onSuccess: ({ sale }, v) => {
       setApproval(null);
       void qc.invalidateQueries({ queryKey: SALES_KEY });
@@ -298,6 +294,10 @@ export function NewSalePage({ editId }: { editId?: number } = {}) {
 
   useHotkey('ctrl+s', () => !dialogOpen() && trySave(false));
   useHotkey('ctrl+enter', () => !dialogOpen() && trySave(true));
+
+  let cashError: string | undefined;
+  if (cashPaisa === null) cashError = 'Enter an amount in rupees';
+  else if (cashPaisa > total && total >= 0) cashError = 'More than the invoice';
 
   const creditUsed = customer && customer.credit_limit_paisa > 0 ? Math.round((Math.max(0, customer.balance_paisa) * 100) / customer.credit_limit_paisa) : null;
 
@@ -422,13 +422,13 @@ export function NewSalePage({ editId }: { editId?: number } = {}) {
             )}
             {lines.map((l, i) => {
               const p = parsed[i];
-              const changed = p !== null && p !== undefined && p.bp !== p.def;
+              const changed = !!p && p.bp !== p.def;
               const issues = lineIssues(i);
               const needs = issues.some((x) => x.severity === 'approval');
               const checked = result?.lines[i];
               const loss = seeProfit && checked?.profit_paisa !== undefined && checked.profit_paisa < 0;
               return (
-                <tr key={l.key} className={cn('border-t border-border align-top', !p && 'bg-red-50', loss && 'bg-red-50')}>
+                <tr key={l.key} className={cn('border-t border-border align-top', (!p || loss) && 'bg-red-50')}>
                   <td className="px-3 py-1.5">
                     <span className="font-mono font-semibold">{l.item_code}</span> <span className="text-sm text-muted-foreground">{l.name}</span>
                     {issues.map((x) => (
@@ -497,7 +497,7 @@ export function NewSalePage({ editId }: { editId?: number } = {}) {
             <MoneyInput id="sa_extra" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="0" />
           </FormField>
           {editId === undefined ? (
-            <FormField label="Cash received now" htmlFor="sa_cash" error={cashPaisa === null ? 'Enter an amount in rupees' : cashPaisa > total && total >= 0 ? 'More than the invoice' : undefined}>
+            <FormField label="Cash received now" htmlFor="sa_cash" error={cashError}>
               <div className="flex gap-2">
                 <MoneyInput id="sa_cash" value={cash} onChange={(e) => setCash(e.target.value)} placeholder="0" />
                 <Button variant="outline" size="sm" className="h-9" onClick={() => setCash(total > 0 ? paisaToInput(total) : '')} disabled={total <= 0}>

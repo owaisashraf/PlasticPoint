@@ -156,12 +156,13 @@ export function listExpenses(db: DB, q: ListQuery): ExpenseList {
     .groupBy(expenses.category_id)
     .orderBy(desc(sql`sum(${expenses.amount_paisa})`))
     .all();
+  const month = sql<string>`substr(${expenses.date}, 1, 7)`;
   const byMonth = db
-    .select({ month: sql<string>`substr(${expenses.date}, 1, 7)`, total_paisa: sql<number>`sum(${expenses.amount_paisa})`, count: sql<number>`count(*)` })
+    .select({ month, total_paisa: sql<number>`sum(${expenses.amount_paisa})`, count: sql<number>`count(*)` })
     .from(expenses)
     .where(postedWhere)
-    .groupBy(sql`substr(${expenses.date}, 1, 7)`)
-    .orderBy(desc(sql`substr(${expenses.date}, 1, 7)`))
+    .groupBy(month)
+    .orderBy(desc(month))
     .all();
   return {
     expenses: rows.map(toExpense),
@@ -173,6 +174,12 @@ export function listExpenses(db: DB, q: ListQuery): ExpenseList {
 }
 
 // --- Writing ------------------------------------------------------------------------
+
+function loadRow(tx: DbOrTx, id: number): typeof expenses.$inferSelect {
+  const row = tx.select().from(expenses).where(eq(expenses.id, id)).get();
+  if (!row) throw notFound('Expense not found.');
+  return row;
+}
 
 function assertUsableCategory(tx: DbOrTx, id: number, allowInactiveId?: number): void {
   const c = tx.select().from(expense_categories).where(eq(expense_categories.id, id)).get();
@@ -222,8 +229,7 @@ export function createExpense(db: DB, user: SessionUser, input: CreateInput): Ex
 export function updateExpense(db: DB, user: SessionUser, id: number, input: UpdateInput): Expense {
   if (input.date > businessToday()) throw badRequest('The date cannot be in the future.');
   return writeTx(db, (tx) => {
-    const row = tx.select().from(expenses).where(eq(expenses.id, id)).get();
-    if (!row) throw notFound('Expense not found.');
+    const row = loadRow(tx, id);
     assertCanEdit(user, row, 'expenses.manage');
     assertUsableCategory(tx, input.category_id, row.category_id);
     const before = getExpense(tx, id);
@@ -263,8 +269,7 @@ export function updateExpense(db: DB, user: SessionUser, id: number, input: Upda
 
 export function voidExpense(db: DB, user: SessionUser, id: number, reason: string): Expense {
   return writeTx(db, (tx) => {
-    const row = tx.select().from(expenses).where(eq(expenses.id, id)).get();
-    if (!row) throw notFound('Expense not found.');
+    const row = loadRow(tx, id);
     assertCanVoid(user, row);
     const before = getExpense(tx, id);
     tx.update(expenses).set({ status: 'void', version: row.version + 1, updated_by: user.id, updated_at: nowIso() }).where(eq(expenses.id, id)).run();

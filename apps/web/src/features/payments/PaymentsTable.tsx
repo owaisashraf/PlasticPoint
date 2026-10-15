@@ -12,8 +12,8 @@ import { useCan } from '@/features/auth/useAuth';
 import { useDocRights, VoidButton } from '@/features/documents';
 import { useSuppliers } from '@/features/purchases/api';
 import { api, errorMessage } from '@/lib/api';
-import { formatDateTime } from '@/lib/utils';
-import { usePayments, useRefreshAfterMoney } from './api';
+import { cn, formatDateTime } from '@/lib/utils';
+import { PAYMENTS_KEY, usePayments, useRefreshAfterMoney } from './api';
 import { PaySupplierDialog } from './PaySupplierDialog';
 import { METHOD_LABEL, ReceivePaymentDialog } from './ReceivePaymentDialog';
 import { RefundEditDialog } from './RefundEditDialog';
@@ -29,6 +29,18 @@ export function PaymentStatusBadge({ p }: { p: Payment }) {
 function methodText(p: Payment): string {
   if (p.method === 'cheque') return `Cheque ${p.cheque_no ?? ''}${p.cheque_bank ? ` · ${p.cheque_bank}` : ''}`;
   return `${METHOD_LABEL[p.method]}${p.reference ? ` · ${p.reference}` : ''}`;
+}
+
+/** How much of a receipt went to invoices, with any advance left over. */
+function AppliedCell({ p }: { p: Payment }) {
+  if (p.kind !== 'receipt') return null;
+  if (p.status !== 'posted') return <>—</>;
+  if (p.allocated_paisa >= p.amount_paisa) return <>{formatPaisa(p.allocated_paisa)}</>;
+  return (
+    <span>
+      {formatPaisa(p.allocated_paisa)} <Badge variant="info">Advance {formatPaisa(p.amount_paisa - p.allocated_paisa)}</Badge>
+    </span>
+  );
 }
 
 /** Receipts, supplier payments or refunds, with search and dates. `customerId` limits to one customer. */
@@ -88,16 +100,10 @@ export function PaymentsTable({ kind, customerId }: { kind?: PaymentKind; custom
                   </td>
                 )}
                 <td className="px-3 py-2">{methodText(p)}</td>
-                <td className={p.status === 'posted' ? 'amount px-3 py-2 font-semibold' : 'amount px-3 py-2 text-muted-foreground line-through'}>{formatPaisa(p.amount_paisa)}</td>
+                <td className={cn('amount px-3 py-2', p.status === 'posted' ? 'font-semibold' : 'text-muted-foreground line-through')}>{formatPaisa(p.amount_paisa)}</td>
                 {showApplied && (
                   <td className="amount px-3 py-2">
-                    {p.kind !== 'receipt' ? '' : p.status !== 'posted' ? '—' : p.allocated_paisa < p.amount_paisa ? (
-                      <span>
-                        {formatPaisa(p.allocated_paisa)} <Badge variant="info">Advance {formatPaisa(p.amount_paisa - p.allocated_paisa)}</Badge>
-                      </span>
-                    ) : (
-                      formatPaisa(p.allocated_paisa)
-                    )}
+                    <AppliedCell p={p} />
                   </td>
                 )}
                 <td className="px-3 py-2 text-sm text-muted-foreground">{p.created_by_name}</td>
@@ -130,7 +136,7 @@ function PaymentDetailDialog({ id, onClose }: { id: number; onClose: () => void 
   const [bouncing, setBouncing] = useState(false);
   const [editing, setEditing] = useState<{ customer?: Customer } | null>(null);
   const suppliers = useSuppliers();
-  const { data: p, isError, error } = useQuery({ queryKey: ['payments', 'one', id], queryFn: () => api.get<{ payment: Payment }>(`/api/payments/${id}`).then((r) => r.payment) });
+  const { data: p, isError, error } = useQuery({ queryKey: [...PAYMENTS_KEY, 'one', id], queryFn: () => api.get<{ payment: Payment }>(`/api/payments/${id}`).then((r) => r.payment) });
   const bounce = useMutation({
     mutationFn: (reason: string) => api.post(`/api/payments/${id}/bounce`, { reason }),
     onSuccess: () => {

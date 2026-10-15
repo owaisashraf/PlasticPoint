@@ -29,7 +29,9 @@ function toForm(s: Settings): FormValues {
   const out: FormValues = {};
   for (const f of ALL_FIELDS) {
     const v = s[f.key];
-    out[f.key] = f.kind === 'bool' ? Boolean(v) : f.kind === 'percent' ? bpToPercentString(v as number) : String(v);
+    if (f.kind === 'bool') out[f.key] = Boolean(v);
+    else if (f.kind === 'percent') out[f.key] = bpToPercentString(v as number);
+    else out[f.key] = String(v);
   }
   return out;
 }
@@ -111,6 +113,9 @@ export function SettingsPage() {
   }, [onSubmit]);
 
   const dirtyCount = Object.keys(form.formState.dirtyFields).length;
+  let saveLabel = 'Saved';
+  if (save.isPending) saveLabel = 'Saving…';
+  else if (dirtyCount) saveLabel = `Save ${dirtyCount} change${dirtyCount > 1 ? 's' : ''}`;
   const tabs = useMemo(
     () => [
       ...SECTIONS.map((s) => ({ id: s.id, title: s.title })),
@@ -137,7 +142,7 @@ export function SettingsPage() {
                 </Button>
               )}
               <Button onClick={() => void onSubmit()} disabled={save.isPending || dirtyCount === 0} title="Ctrl+S">
-                {save.isPending ? 'Saving…' : dirtyCount ? `Save ${dirtyCount} change${dirtyCount > 1 ? 's' : ''}` : 'Saved'}
+                {saveLabel}
               </Button>
             </>
           )
@@ -194,12 +199,10 @@ export function SettingsPage() {
 
 function SettingField({ field: f, form }: { field: FieldDef; form: UseFormReturn<FormValues> }) {
   const error = form.formState.errors[f.key]?.message;
-  const dirty = Boolean(form.formState.dirtyFields[f.key]);
-  const wide = (f.kind === 'text' && f.wide) || f.kind === 'textarea';
-  const cls = cn(dirty && 'border-primary ring-1 ring-primary');
+  const fullWidth = (f.kind === 'text' && f.wide) || f.kind === 'textarea' || f.kind === 'bool';
 
   return (
-    <div className={cn(wide && 'md:col-span-2', f.kind === 'bool' && 'md:col-span-2')}>
+    <div className={cn(fullWidth && 'md:col-span-2')}>
       {f.kind === 'bool' ? (
         <div className="flex items-start gap-3">
           <Controller
@@ -216,31 +219,40 @@ function SettingField({ field: f, form }: { field: FieldDef; form: UseFormReturn
         </div>
       ) : (
         <FormField label={f.label} htmlFor={f.key} error={error} hint={f.hint}>
-          {f.kind === 'textarea' ? (
-            <Textarea id={f.key} rows={8} className={cls} aria-invalid={Boolean(error)} {...form.register(f.key)} />
-          ) : f.kind === 'select' ? (
-            <NativeSelect id={f.key} className={cls} {...form.register(f.key)}>
-              {f.options.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </NativeSelect>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Input
-                id={f.key}
-                className={cn(cls, (f.kind === 'int' || f.kind === 'percent' || f.kind === 'time') && 'w-28', f.kind !== 'text' && 'amount')}
-                inputMode={f.kind === 'int' || f.kind === 'percent' ? 'decimal' : undefined}
-                aria-invalid={Boolean(error)}
-                {...form.register(f.key)}
-              />
-              {f.kind === 'percent' && <span className="text-muted-foreground">%</span>}
-              {f.kind === 'int' && f.suffix && <span className="text-sm text-muted-foreground">{f.suffix}</span>}
-            </div>
-          )}
+          <SettingInput field={f} form={form} invalid={Boolean(error)} />
         </FormField>
       )}
+    </div>
+  );
+}
+
+/** The input for a setting other than a switch; a changed value is outlined. */
+function SettingInput({ field: f, form, invalid }: { field: FieldDef; form: UseFormReturn<FormValues>; invalid: boolean }) {
+  const cls = cn(Boolean(form.formState.dirtyFields[f.key]) && 'border-primary ring-1 ring-primary');
+
+  if (f.kind === 'textarea') return <Textarea id={f.key} rows={8} className={cls} aria-invalid={invalid} {...form.register(f.key)} />;
+  if (f.kind === 'select') {
+    return (
+      <NativeSelect id={f.key} className={cls} {...form.register(f.key)}>
+        {f.options.map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+          </option>
+        ))}
+      </NativeSelect>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        id={f.key}
+        className={cn(cls, (f.kind === 'int' || f.kind === 'percent' || f.kind === 'time') && 'w-28', f.kind !== 'text' && 'amount')}
+        inputMode={f.kind === 'int' || f.kind === 'percent' ? 'decimal' : undefined}
+        aria-invalid={invalid}
+        {...form.register(f.key)}
+      />
+      {f.kind === 'percent' && <span className="text-muted-foreground">%</span>}
+      {f.kind === 'int' && f.suffix && <span className="text-sm text-muted-foreground">{f.suffix}</span>}
     </div>
   );
 }

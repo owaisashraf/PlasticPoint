@@ -69,13 +69,11 @@ export function AppShell() {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium hover:bg-muted',
-                    // "Sales" stays lit on an invoice (/sales/12) but not on New Sale (/sales/new).
-                    (item.to === '/sales' ? isActive && pathname !== '/sales/new' : isActive) && 'bg-primary text-primary-foreground hover:bg-primary',
-                  )
-                }
+                className={({ isActive }) => {
+                  // "Sales" stays lit on an invoice (/sales/12) but not on New Sale (/sales/new).
+                  const lit = isActive && !(item.to === '/sales' && pathname === '/sales/new');
+                  return cn('flex items-center gap-2.5 rounded-md px-3 py-2 text-[15px] font-medium hover:bg-muted', lit && 'bg-primary text-primary-foreground hover:bg-primary');
+                }}
               >
                 <item.icon className="size-4 shrink-0" />
                 <span className="flex-1">{item.label}</span>

@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { businessDateSchema } from './common';
+import { boolQueryParamSchema, businessDateSchema } from './common';
 import { CUSTOMER_TYPES } from './customers';
+import { PAYMENT_METHODS } from './payments';
 import type { KnownPermission } from './permissions';
 
 /**
@@ -197,11 +198,6 @@ export const REPORT_KEYS = REPORTS.map((r) => r.key);
 
 // --- Query and result -----------------------------------------------------------------
 
-const boolParam = z
-  .enum(['true', 'false', '1', '0'])
-  .optional()
-  .transform((v) => v === 'true' || v === '1');
-
 export const reportQuerySchema = z.object({
   from: businessDateSchema.optional(),
   to: businessDateSchema.optional(),
@@ -214,14 +210,14 @@ export const reportQuerySchema = z.object({
   group_by: z.string().trim().max(30).optional(),
   category: z.string().trim().max(60).optional(),
   expense_category_id: z.coerce.number().int().positive().optional(),
-  method: z.enum(['cash', 'bank', 'cheque', 'online']).optional(),
+  method: z.enum(PAYMENT_METHODS).optional(),
   inactive_days: z.coerce.number().int().min(1).max(3650).default(60),
   show: z.string().trim().max(30).optional(),
   /** Start year of the fiscal year (e.g. 2026 for 2026-27). */
   fiscal_year: z.coerce.number().int().min(2000).max(2100).optional(),
   /** Profit & loss: calendar year instead of fiscal year. */
-  calendar: boolParam,
-  compare: boolParam,
+  calendar: boolQueryParamSchema,
+  compare: boolQueryParamSchema,
   format: z.enum(['json', 'csv', 'pdf']).default('json'),
 });
 export type ReportQuery = z.input<typeof reportQuerySchema>;

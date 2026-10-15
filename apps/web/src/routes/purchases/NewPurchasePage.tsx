@@ -125,25 +125,26 @@ export function NewPurchasePage({ editId }: { editId?: number } = {}) {
       for (const { variant, qty } of picks) {
         if (next.some((l) => l.variant_id === variant.id)) {
           next = next.map((l) => (l.variant_id === variant.id ? { ...l, qty: String(Number(l.qty || 0) + qty) } : l));
-        } else
+        } else {
           next = [
             ...next,
             {
-            key: String(variant.id),
-            variant_id: variant.id,
-            product_id: product.id,
-            item_code: product.item_code,
-            name: product.name,
-            color: variant.color,
-            size: variant.size,
-            unit: product.unit,
-            qty: String(qty),
-            price: paisaToInput(product.list_price_paisa),
-            margin: bpToPercentString(product.supplier_margin_bp ?? 0),
-            product_price_paisa: product.list_price_paisa,
-            product_margin_bp: product.supplier_margin_bp ?? 0,
+              key: String(variant.id),
+              variant_id: variant.id,
+              product_id: product.id,
+              item_code: product.item_code,
+              name: product.name,
+              color: variant.color,
+              size: variant.size,
+              unit: product.unit,
+              qty: String(qty),
+              price: paisaToInput(product.list_price_paisa),
+              margin: bpToPercentString(product.supplier_margin_bp ?? 0),
+              product_price_paisa: product.list_price_paisa,
+              product_margin_bp: product.supplier_margin_bp ?? 0,
             },
           ];
+        }
       }
       return next;
     });
@@ -307,8 +308,8 @@ export function NewPurchasePage({ editId }: { editId?: number } = {}) {
             )}
             {lines.map((l, i) => {
               const a = amounts[i];
-              const priceChanged = a !== null && a !== undefined && a.price !== l.product_price_paisa;
-              const marginChanged = a !== null && a !== undefined && a.bp !== l.product_margin_bp;
+              const priceChanged = !!a && a.price !== l.product_price_paisa;
+              const marginChanged = !!a && a.bp !== l.product_margin_bp;
               return (
                 <tr key={l.key} className={cn('border-t border-border', !a && 'bg-red-50')}>
                   <td className="px-3 py-1.5">

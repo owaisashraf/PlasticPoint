@@ -4,13 +4,18 @@ import { AppError, badRequest } from '../../lib/errors';
 import { currentUser, requirePermission } from '../../lib/permissions';
 import { getSettings } from '../settings/service';
 import { checkConnection, CloudApiError } from './cloud-api';
-import { cloudConfig, createWhatsAppSender, explorerOpener, openLogFolder, whatsappHistory } from './service';
+import { cloudConfig, createWhatsAppSender, explorerOpener, openLogFolder, whatsappHistory, type FolderOpener } from './service';
 
 export async function whatsappRoutes(app: AppInstance) {
   const { ctx } = app;
   const send = requirePermission('whatsapp.send');
   const sender = (req: Parameters<typeof currentUser>[0]) =>
     createWhatsAppSender({ db: ctx.dbh.db, config: ctx.config, user: currentUser(req), fetch: ctx.whatsappFetch });
+  // Tests inject an opener (or null); otherwise Explorer, which exists only on Windows.
+  const folderOpener = (): FolderOpener | null => {
+    if (ctx.folderOpener !== undefined) return ctx.folderOpener;
+    return process.platform === 'win32' ? explorerOpener : null;
+  };
 
   app.post('/api/whatsapp/invoice/:id', { ...send, schema: { params: idParamSchema } }, async (req) => sender(req).sendInvoice(req.params.id));
 
@@ -26,10 +31,9 @@ export async function whatsappRoutes(app: AppInstance) {
   }));
 
   // "PDF saved — Open folder": Explorer on the shop laptop, with the PDF selected.
-  app.post('/api/whatsapp/log/:id/open-folder', { ...send, schema: { params: idParamSchema } }, async (req) => {
-    const opener = ctx.folderOpener !== undefined ? ctx.folderOpener : process.platform === 'win32' ? explorerOpener : null;
-    return openLogFolder(ctx.dbh.db, ctx.config, req.params.id, req.ip, opener);
-  });
+  app.post('/api/whatsapp/log/:id/open-folder', { ...send, schema: { params: idParamSchema } }, async (req) =>
+    openLogFolder(ctx.dbh.db, ctx.config, req.params.id, req.ip, folderOpener()),
+  );
 
   // Settings → WhatsApp → Test connection (uses the saved Cloud API details).
   app.post('/api/whatsapp/test', { ...requirePermission('settings.manage') }, async (): Promise<CloudApiCheck> => {
